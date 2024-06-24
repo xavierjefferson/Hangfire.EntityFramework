@@ -1,12 +1,12 @@
+using System;
 using System.Threading;
 using Hangfire.EntityFrameworkStorage.Entities;
 using Hangfire.Storage;
 
-namespace Hangfire.EntityFrameworkStorage.JobQueue
+namespace Hangfire.EntityFrameworkStorage.JobQueue;
+
+public interface IPersistentJobQueue
 {
-    public interface IPersistentJobQueue
-    {
-        IFetchedJob Dequeue(string[] queues, CancellationToken cancellationToken);
-        void Enqueue(HangfireContext dbContext, string queue, string jobId);
-    }
+    IFetchedJob Dequeue(string[] queues, CancellationToken cancellationToken);
+    void Enqueue(HangfireContext dbContext, string queue, string jobId);
 }

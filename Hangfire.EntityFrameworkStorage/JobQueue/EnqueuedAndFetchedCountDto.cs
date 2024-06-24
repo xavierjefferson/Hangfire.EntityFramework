@@ -1,8 +1,7 @@
-﻿namespace Hangfire.EntityFrameworkStorage.JobQueue
+﻿namespace Hangfire.EntityFrameworkStorage.JobQueue;
+
+public class EnqueuedAndFetchedCountDto
 {
-    public class EnqueuedAndFetchedCountDto
-    {
-        public int? EnqueuedCount { get; set; }
-        public int? FetchedCount { get; set; }
-    }
+    public int? EnqueuedCount { get; set; }
+    public int? FetchedCount { get; set; }
 }

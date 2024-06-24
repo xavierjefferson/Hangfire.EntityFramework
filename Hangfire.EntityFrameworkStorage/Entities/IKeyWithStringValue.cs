@@ -1,8 +1,7 @@
-namespace Hangfire.EntityFrameworkStorage.Entities
+namespace Hangfire.EntityFrameworkStorage.Entities;
+
+internal interface IKeyWithStringValue
 {
-    internal interface IKeyWithStringValue
-    {
-        string Key { get; }
-        string Value { get; }
-    }
+    string Key { get; }
+    string Value { get; }
 }

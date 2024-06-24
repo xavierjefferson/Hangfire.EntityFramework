@@ -1,6 +1,5 @@
 ﻿namespace Hangfire.EntityFrameworkStorage.Entities;
 
-public interface IJobChild
+public abstract class HFEntity
 {
-    _Job Job { get; }
 }

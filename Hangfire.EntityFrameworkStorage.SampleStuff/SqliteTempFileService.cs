@@ -40,7 +40,7 @@ namespace Hangfire.EntityFrameworkStorage.SampleStuff
         public string GetConnectionString()
         {
             var databaseFileName = GetDatabaseFileName();
-            return $"Data Source={databaseFileName};Version=3";
+            return $"Data Source={databaseFileName};";
         }
 
         public void CreateDatabase()

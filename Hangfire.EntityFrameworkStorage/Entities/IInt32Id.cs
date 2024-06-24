@@ -1,7 +1,14 @@
-namespace Hangfire.EntityFrameworkStorage.Entities
+namespace Hangfire.EntityFrameworkStorage.Entities;
+
+public interface IWithID<U>
 {
-    public interface IInt32Id
-    {
-        int Id { get; set; }
-    }
+    U Id { get; set; }
+}
+public interface IInt32Id:IWithID<int>
+{
+    
+}
+public interface IStringId:IWithID<string>
+{
+
 }

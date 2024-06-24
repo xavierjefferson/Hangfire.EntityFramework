@@ -24,72 +24,78 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
     }
 
-    private void SetExpireAt<T>(string key, DateTime? expire, HangfireContext dbContext) where T : IExpirableWithKey
+    private void SetExpireAt<T>(string key, DateTime? expire, HangfireContext wrapper)
+        where T : HFEntity, IExpirableWithKey
     {
-        var queryString = SqlUtil.SetExpireAtByKeyStatementDictionary[typeof(T)];
-        dbContext.CreateQuery(queryString)
-            .SetParameter(SqlUtil.ValueParameterName, expire)
-            .SetParameter(SqlUtil.IdParameterName, key)
-            .ExecuteUpdate();
+        var tmp = wrapper.Set<T>().FirstOrDefault(i => i.Key == key);
+        if (tmp != null)
+        {
+            tmp.ExpireAt = expire;
+            wrapper.Update(tmp);
+            wrapper.SaveChanges();
+        }
+    }
+
+    private void DeleteByKey<T>(string key, HangfireContext wrapper) where T : class, IExpirableWithKey
+    {
+        wrapper.RemoveRange(wrapper.Set<T>().Where(i => i.Key == key));
+        wrapper.SaveChanges();
         //does nothing
     }
 
-    private void DeleteByKey<T>(string key, HangfireContext dbContext) where T : class, IExpirableWithKey
-    {
-        dbContext.RemoveRange(dbContext.Set<T>().Where(i => i.Key == key));
-        dbContext.SaveChanges();
-        //does nothing
-    }
-
-    private void DeleteByKeyValue<T>(string key, string value, HangfireContext dbContext)
+    private void DeleteByKeyValue<T>(string key, string value, HangfireContext wrapper)
         where T : class, IKeyWithStringValue
     {
-        dbContext.RemoveRange(dbContext.Set<T>().Where(i => i.Key == key && i.Value == value));
-        dbContext.SaveChanges();
+        wrapper.RemoveRange(wrapper.Set<T>().Where(i => i.Key == key && i.Value == value));
+        wrapper.SaveChanges();
         //does nothing
     }
 
     public override void ExpireJob(string jobId, TimeSpan expireIn)
     {
         Logger.DebugFormat("ExpireJob jobId={0}", jobId);
-        var converter = StringToInt32Converter.Convert(jobId);
-        if (!converter.Valid) return;
 
         AcquireJobLock();
 
-        AddCommand(dbContext =>
-            dbContext.CreateQuery(SqlUtil.UpdateJobExpireAtStatement)
-                .SetParameter(SqlUtil.IdParameterName, converter.Value)
-                .SetParameter(SqlUtil.ValueParameterName, dbContext.Storage.UtcNow.Add(expireIn))
-                .ExecuteUpdate());
+        AddCommand(wrapper =>
+        {
+            var job = wrapper.Jobs.FirstOrDefault(i => i.Id == jobId);
+            if (job != null)
+            {
+                job.ExpireAt = _storage.UtcNow.Add(expireIn);
+                wrapper.Update(job);
+                wrapper.SaveChanges();
+            }
+        });
     }
 
     public override void PersistJob(string jobId)
     {
         Logger.DebugFormat("PersistJob jobId={0}", jobId);
-        var converter = StringToInt32Converter.Convert(jobId);
-        if (!converter.Valid) return;
 
         AcquireJobLock();
 
-        AddCommand(dbContext =>
-            dbContext.CreateQuery(SqlUtil.UpdateJobExpireAtStatement)
-                .SetParameter(SqlUtil.ValueParameterName, null)
-                .SetParameter(SqlUtil.IdParameterName, converter.Value)
-                .ExecuteUpdate());
+        AddCommand(wrapper =>
+        {
+            var tmp = wrapper.Jobs.FirstOrDefault(i => i.Id ==jobId);
+            if (tmp != null)
+            {
+                tmp.ExpireAt = null;
+                wrapper.Update(tmp);
+                wrapper.SaveChanges();
+            }
+        });
     }
 
     public override void SetJobState(string jobId, IState state)
     {
         Logger.DebugFormat("SetJobState jobId={0}", jobId);
-        var converter = StringToInt32Converter.Convert(jobId);
-        if (!converter.Valid) return;
 
         AcquireStateLock();
         AcquireJobLock();
-        AddCommand(dbContext =>
+        AddCommand(wrapper =>
         {
-            var job = dbContext.Jobs.SingleOrDefault(i => i.Id == converter.Value);
+            var job = wrapper.Jobs.SingleOrDefault(i => i.Id == jobId);
             if (job != null)
             {
                 var jobState = new _JobState
@@ -97,18 +103,18 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
                     Job = job,
                     Reason = state.Reason,
                     Name = state.Name,
-                    CreatedAt = dbContext.Storage.UtcNow,
+                    CreatedAt = _storage.UtcNow,
                     Data = SerializationHelper.Serialize(state.SerializeData())
                 };
-                dbContext.Insert(jobState);
-
+                wrapper.JobStates.Add(jobState);
 
                 job.StateData = jobState.Data;
                 job.StateReason = jobState.Reason;
                 job.StateName = jobState.Name;
-                job.LastStateChangedAt = dbContext.Storage.UtcNow;
+                job.LastStateChangedAt = _storage.UtcNow;
 
-                dbContext.UpdateAndFlush(job);
+                wrapper.Update(job);
+                wrapper.SaveChanges();
                 //does nothing
             }
         });
@@ -117,20 +123,22 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
     public override void AddJobState(string jobId, IState state)
     {
         Logger.DebugFormat("AddJobState jobId={0}, state={1}", jobId, state);
-        var converter = StringToInt32Converter.Convert(jobId);
-        if (!converter.Valid) return;
 
         AcquireStateLock();
         AddCommand(dbContext =>
         {
-            dbContext.Insert(new _JobState
-            {
-                Job = new _Job { Id = converter.Value },
-                Name = state.Name,
-                Reason = state.Reason,
-                CreatedAt = dbContext.Storage.UtcNow,
-                Data = SerializationHelper.Serialize(state.SerializeData())
-            });
+            var job = dbContext.Jobs.SingleOrDefault(i => i.Id == jobId);
+            if (job != null)
+                dbContext.Add(new _JobState
+                {
+                    Job = job,
+                    Name = state.Name,
+                    Reason = state.Reason,
+                    CreatedAt = _storage.UtcNow,
+                    Data = SerializationHelper.Serialize(state.SerializeData())
+                });
+
+            dbContext.SaveChanges();
         });
     }
 
@@ -161,12 +169,15 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
 
         AcquireCounterLock();
         AddCommand(dbContext =>
-            dbContext.Insert(new _Counter
+        {
+            dbContext.Add(new _Counter
             {
                 Key = key,
                 Value = value,
-                ExpireAt = expireIn == null ? null : dbContext.Storage.UtcNow.Add(expireIn.Value)
-            }));
+                ExpireAt = expireIn == null ? null : _storage.UtcNow.Add(expireIn.Value)
+            });
+            dbContext.SaveChanges();
+        });
     }
 
     public override void DecrementCounter(string key)
@@ -189,9 +200,9 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
         Logger.DebugFormat("AddToSet key={0} value={1}", key, value);
 
         AcquireSetLock();
-        AddCommand(dbContext =>
+        AddCommand(wrapper =>
         {
-            dbContext.UpsertEntity<_Set>(i => i.Key == key && i.Value == value, i => i.Score = score, i =>
+            wrapper.UpsertEntity<_Set>(i => i.Key == key && i.Value == value, i => i.Score = score, i =>
             {
                 i.Key = key;
                 i.Value = value;
@@ -209,7 +220,11 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
         AcquireSetLock();
         AddCommand(dbContext =>
         {
-            foreach (var i in items) dbContext.Insert(new _Set { Key = key, Value = i, Score = 0 });
+            foreach (var i in items)
+            {
+                dbContext.Add(new _Set { Key = key, Value = i, Score = 0 });
+                dbContext.SaveChanges();
+            }
         });
     }
 
@@ -229,7 +244,7 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
         if (key == null) throw new ArgumentNullException(nameof(key));
 
         AcquireSetLock();
-        AddCommand(dbContext => { SetExpireAt<_Set>(key, dbContext.Storage.UtcNow.Add(expireIn), dbContext); });
+        AddCommand(dbContext => { SetExpireAt<_Set>(key, _storage.UtcNow.Add(expireIn), dbContext); });
     }
 
     public override void InsertToList(string key, string value)
@@ -237,7 +252,11 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
         Logger.DebugFormat("InsertToList key={0} value={1}", key, value);
 
         AcquireListLock();
-        AddCommand(dbContext => dbContext.Insert(new _List { Key = key, Value = value }));
+        AddCommand(dbContext =>
+        {
+            dbContext.Add(new _List { Key = key, Value = value });
+            dbContext.SaveChanges();
+        });
     }
 
 
@@ -248,7 +267,7 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
         Logger.DebugFormat("ExpireList key={0} expirein={1}", key, expireIn);
 
         AcquireListLock();
-        AddCommand(dbContext => { SetExpireAt<_List>(key, dbContext.Storage.UtcNow.Add(expireIn), dbContext); });
+        AddCommand(dbContext => { SetExpireAt<_List>(key, _storage.UtcNow.Add(expireIn), dbContext); });
     }
 
     public override void RemoveFromList(string key, string value)
@@ -264,16 +283,16 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
         Logger.DebugFormat("TrimList key={0} from={1} to={2}", key, keepStartingFrom, keepEndingAt);
 
         AcquireListLock();
-        AddCommand(dbContext =>
+        AddCommand(wrapper =>
         {
-            var idList = dbContext.Lists
+            var idList = wrapper.Lists
                 .OrderBy(i => i.Id)
                 .Where(i => i.Key == key).ToList()
                 .Select((i, j) => new { index = j, id = i.Id }).ToList();
             var before = idList.Where(i => i.index < keepStartingFrom || i.index > keepEndingAt)
                 .Select(i => i.id)
                 .ToList();
-            dbContext.DeleteByInt32Id<_List>(before);
+            wrapper.DeleteById<_List, int>(before);
         });
     }
 
@@ -325,10 +344,10 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
         if (keyValuePairs == null) throw new ArgumentNullException(nameof(keyValuePairs));
 
         AcquireHashLock();
-        AddCommand(dbContext =>
+        AddCommand(wrapper =>
         {
             foreach (var keyValuePair in keyValuePairs)
-                dbContext.UpsertEntity<_Hash>(i => i.Key == key && i.Field == keyValuePair.Key,
+                wrapper.UpsertEntity<_Hash>(i => i.Key == key && i.Field == keyValuePair.Key,
                     i => i.Value = keyValuePair.Value,
                     i =>
                     {
@@ -346,7 +365,7 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
         if (key == null) throw new ArgumentNullException(nameof(key));
 
         AcquireHashLock();
-        AddCommand(dbContext => { SetExpireAt<_Hash>(key, dbContext.Storage.UtcNow.Add(expireIn), dbContext); });
+        AddCommand(dbContext => { SetExpireAt<_Hash>(key, _storage.UtcNow.Add(expireIn), dbContext); });
     }
 
     public override void RemoveHash(string key)

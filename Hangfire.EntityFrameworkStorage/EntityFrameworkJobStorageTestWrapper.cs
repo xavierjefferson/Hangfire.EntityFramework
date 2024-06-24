@@ -1,17 +1,17 @@
-﻿namespace Hangfire.EntityFrameworkStorage
+﻿namespace Hangfire.EntityFrameworkStorage;
+
+public class EntityFrameworkJobStorageTestWrapper
 {
-    public class EntityFrameworkJobStorageTestWrapper
+    private readonly EntityFrameworkJobStorage _storage;
+
+    public EntityFrameworkJobStorageTestWrapper(EntityFrameworkJobStorage storage)
     {
-        private readonly EntityFrameworkJobStorage _storage;
+        _storage = storage;
+    }
 
-        public EntityFrameworkJobStorageTestWrapper(EntityFrameworkJobStorage storage)
-        {
-            _storage = storage;
-        }
-
-        public int ExecuteHqlQuery(string query)
-        {
-            return _storage.UseStatelessSession(dbContext => { return dbContext.CreateQuery(query).ExecuteUpdate(); });
-        }
+    public int ExecuteHqlQuery(string query)
+    {
+        return
+            0; // _storage.UseStatelessSession(dbContext => { return dbContext.CreateQuery(query).ExecuteUpdate(); });
     }
 }

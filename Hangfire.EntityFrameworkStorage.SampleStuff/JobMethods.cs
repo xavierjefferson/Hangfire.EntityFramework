@@ -50,6 +50,7 @@ namespace Hangfire.EntityFrameworkStorage.SampleStuff
 
         public static void CreateRecurringJobs(ILogger logger)
         {
+            BackgroundJob.Enqueue<IJobMethods>(x => x.HelloWorld("Background", DateTime.Now, TimeSpan.Zero));
             var values = new[] {1, 2, 3, 5, 7, 11, 13, 17, 23, 29};
             foreach (var item in values)
             {

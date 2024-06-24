@@ -1,7 +1,6 @@
-﻿namespace Hangfire.EntityFrameworkStorage.Entities
+﻿namespace Hangfire.EntityFrameworkStorage.Entities;
+
+public class _Hash : KeyValueTypeBase<string>, IStringKey, IStringValue
 {
-    public class _Hash : KeyValueTypeBase<string>, IStringKey, IStringValue
-    {
-        public virtual string Field { get; set; }
-    }
+    public virtual string Field { get; set; }
 }

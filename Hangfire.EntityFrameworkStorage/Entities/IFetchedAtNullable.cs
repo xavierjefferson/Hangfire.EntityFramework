@@ -1,9 +1,8 @@
 ﻿using System;
 
-namespace Hangfire.EntityFrameworkStorage.Entities
+namespace Hangfire.EntityFrameworkStorage.Entities;
+
+public interface IFetchedAtNullable
 {
-    public interface IFetchedAtNullable
-    {
-        DateTime? FetchedAt { get; set; }
-    }
+    DateTime? FetchedAt { get; set; }
 }

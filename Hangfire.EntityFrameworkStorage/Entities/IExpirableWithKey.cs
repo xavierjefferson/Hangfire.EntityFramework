@@ -1,7 +1,6 @@
-namespace Hangfire.EntityFrameworkStorage.Entities
+namespace Hangfire.EntityFrameworkStorage.Entities;
+
+internal interface IExpirableWithKey : IExpirable
 {
-    internal interface IExpirableWithKey : IExpirable
-    {
-        string Key { get; set; }
-    }
+    string Key { get; set; }
 }

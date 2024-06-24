@@ -1,8 +1,7 @@
-﻿namespace Hangfire.EntityFrameworkStorage.JobQueue
+﻿namespace Hangfire.EntityFrameworkStorage.JobQueue;
+
+public interface IPersistentJobQueueProvider
 {
-    public interface IPersistentJobQueueProvider
-    {
-        IPersistentJobQueue GetJobQueue();
-        IPersistentJobQueueMonitoringApi GetJobQueueMonitoringApi();
-    }
+    IPersistentJobQueue GetJobQueue();
+    IPersistentJobQueueMonitoringApi GetJobQueueMonitoringApi();
 }

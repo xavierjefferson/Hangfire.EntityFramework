@@ -1,7 +1,6 @@
-﻿namespace Hangfire.EntityFrameworkStorage.Entities
+﻿namespace Hangfire.EntityFrameworkStorage.Entities;
+
+public interface IStringValue
 {
-    public interface IStringValue
-    {
-        string Value { get; set; }
-    }
+    string Value { get; set; }
 }

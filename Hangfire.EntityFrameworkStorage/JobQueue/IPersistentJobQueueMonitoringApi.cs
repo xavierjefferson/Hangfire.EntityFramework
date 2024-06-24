@@ -1,12 +1,11 @@
 ﻿using System.Collections.Generic;
 
-namespace Hangfire.EntityFrameworkStorage.JobQueue
+namespace Hangfire.EntityFrameworkStorage.JobQueue;
+
+public interface IPersistentJobQueueMonitoringApi
 {
-    public interface IPersistentJobQueueMonitoringApi
-    {
-        IEnumerable<string> GetQueues();
-        IEnumerable<long> GetEnqueuedJobIds(string queue, int from, int perPage);
-        IEnumerable<long> GetFetchedJobIds(string queue, int from, int perPage);
-        EnqueuedAndFetchedCountDto GetEnqueuedAndFetchedCount(string queue);
-    }
+    IEnumerable<string> GetQueues();
+    IEnumerable<string> GetEnqueuedJobIds(string queue, int from, int perPage);
+    IEnumerable<string> GetFetchedJobIds(string queue, int from, int perPage);
+    EnqueuedAndFetchedCountDto GetEnqueuedAndFetchedCount(string queue);
 }

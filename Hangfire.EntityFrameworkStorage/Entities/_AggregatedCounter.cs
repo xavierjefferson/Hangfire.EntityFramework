@@ -1,6 +1,5 @@
-﻿namespace Hangfire.EntityFrameworkStorage.Entities
+﻿namespace Hangfire.EntityFrameworkStorage.Entities;
+
+public class _AggregatedCounter : CounterBase
 {
-    public class _AggregatedCounter : CounterBase
-    {
-    }
 }

@@ -1,9 +1,8 @@
 ﻿using System;
 
-namespace Hangfire.EntityFrameworkStorage.Entities
+namespace Hangfire.EntityFrameworkStorage.Entities;
+
+public interface ICreatedAt
 {
-    public interface ICreatedAt
-    {
-        DateTime CreatedAt { get; set; }
-    }
+    DateTime CreatedAt { get; set; }
 }

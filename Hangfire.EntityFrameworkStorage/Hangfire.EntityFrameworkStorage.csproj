@@ -12,8 +12,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="hangfire.core" Version="1.7.30" />
+    <PackageReference Include="hangfire.core" Version="1.8.14" />
     <PackageReference Include="microsoft.entityframeworkcore" Version="6.0.0" />
+	<PackageReference Include="microsoft.entityframeworkcore.relational" Version="6.0.0" />
     <PackageReference Include="newtonsoft.json" Version="11.0.1" />
   </ItemGroup>
 

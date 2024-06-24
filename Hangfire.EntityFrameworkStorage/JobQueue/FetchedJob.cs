@@ -1,9 +1,10 @@
-﻿namespace Hangfire.EntityFrameworkStorage.JobQueue
+﻿using System;
+
+namespace Hangfire.EntityFrameworkStorage.JobQueue;
+
+public class FetchedJob
 {
-    public class FetchedJob
-    {
-        public long Id { get; set; }
-        public long JobId { get; set; }
-        public string Queue { get; set; }
-    }
+    public long Id { get; set; }
+    public string JobId { get; set; }
+    public string Queue { get; set; }
 }

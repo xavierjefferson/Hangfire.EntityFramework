@@ -1,11 +1,10 @@
 ﻿using System;
 
-namespace Hangfire.EntityFrameworkStorage
+namespace Hangfire.EntityFrameworkStorage;
+
+public class EntityFrameworkDistributedLockTimeoutException : Exception
 {
-    public class EntityFrameworkDistributedLockTimeoutException : Exception
+    public EntityFrameworkDistributedLockTimeoutException(string message) : base(message)
     {
-        public EntityFrameworkDistributedLockTimeoutException(string message) : base(message)
-        {
-        }
     }
 }

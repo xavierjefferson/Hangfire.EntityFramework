@@ -1,6 +1,7 @@
 ﻿using System;
 using Hangfire.EntityFrameworkStorage;
-using Snork.EntityFrameworkTools;
+using Microsoft.EntityFrameworkCore;
+
 
 namespace Hangfire.EntityFrameworkStorage.SampleStuff
 {
@@ -9,9 +10,10 @@ namespace Hangfire.EntityFrameworkStorage.SampleStuff
         public static IGlobalConfiguration SetupJobStorage(this IGlobalConfiguration globalConfiguration,
             ISqliteTempFileService sqliteTempFileService)
         {
-            return globalConfiguration.UseEntityFrameworkJobStorage(
-                sqliteTempFileService.GetConnectionString(),
-                ProviderTypeEnum.SQLite);
+            return globalConfiguration.UseEntityFrameworkJobStorage(i =>
+            {
+                i.UseSqlite(sqliteTempFileService.GetConnectionString());
+            });
         }
 
         public static IGlobalConfiguration SetupActivator(

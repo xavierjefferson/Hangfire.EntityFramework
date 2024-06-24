@@ -1,9 +1,8 @@
 ﻿using System;
 
-namespace Hangfire.EntityFrameworkStorage.Entities
+namespace Hangfire.EntityFrameworkStorage.Entities;
+
+public interface IExpirable
 {
-    public interface IExpirable
-    {
-        DateTime? ExpireAt { get; set; }
-    }
+    DateTime? ExpireAt { get; set; }
 }

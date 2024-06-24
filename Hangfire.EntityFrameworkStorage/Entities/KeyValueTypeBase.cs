@@ -1,12 +1,11 @@
 ﻿using System;
 
-namespace Hangfire.EntityFrameworkStorage.Entities
+namespace Hangfire.EntityFrameworkStorage.Entities;
+
+public abstract class KeyValueTypeBase<T> : Int32IdBase, IExpirableWithKey, IExpirableWithId, IExpirable,
+    IStringKey
 {
-    public abstract class KeyValueTypeBase<T> : Int32IdBase, IExpirableWithKey, IExpirableWithId, IExpirable,
-        IStringKey
-    {
-        public virtual T Value { get; set; }
-        public virtual string Key { get; set; }
-        public virtual DateTime? ExpireAt { get; set; }
-    }
+    public virtual T Value { get; set; }
+    public virtual string Key { get; set; }
+    public virtual DateTime? ExpireAt { get; set; }
 }

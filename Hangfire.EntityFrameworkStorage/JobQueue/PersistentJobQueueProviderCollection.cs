@@ -3,57 +3,52 @@ using System.Collections;
 using System.Collections.Generic;
 using Hangfire.Logging;
 
-namespace Hangfire.EntityFrameworkStorage.JobQueue
+namespace Hangfire.EntityFrameworkStorage.JobQueue;
+
+public class PersistentJobQueueProviderCollection : IEnumerable<IPersistentJobQueueProvider>
 {
-    public class PersistentJobQueueProviderCollection : IEnumerable<IPersistentJobQueueProvider>
+    private static readonly ILog Logger = LogProvider.For<PersistentJobQueueProviderCollection>();
+
+    private readonly IPersistentJobQueueProvider _defaultProvider;
+
+    private readonly List<IPersistentJobQueueProvider> _providers = new();
+
+    private readonly Dictionary<string, IPersistentJobQueueProvider> _providersByQueue
+        = new(StringComparer.OrdinalIgnoreCase);
+
+    public PersistentJobQueueProviderCollection(IPersistentJobQueueProvider defaultProvider)
     {
-        private static readonly ILog Logger = LogProvider.For<PersistentJobQueueProviderCollection>();
+        _defaultProvider = defaultProvider ?? throw new ArgumentNullException(nameof(defaultProvider));
 
-        private readonly IPersistentJobQueueProvider _defaultProvider;
+        _providers.Add(_defaultProvider);
+    }
 
-        private readonly List<IPersistentJobQueueProvider> _providers
-            = new List<IPersistentJobQueueProvider>();
+    public IEnumerator<IPersistentJobQueueProvider> GetEnumerator()
+    {
+        return _providers.GetEnumerator();
+    }
 
-        private readonly Dictionary<string, IPersistentJobQueueProvider> _providersByQueue
-            = new Dictionary<string, IPersistentJobQueueProvider>(StringComparer.OrdinalIgnoreCase);
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        return GetEnumerator();
+    }
 
-        public PersistentJobQueueProviderCollection(IPersistentJobQueueProvider defaultProvider)
-        {
-            _defaultProvider = defaultProvider ?? throw new ArgumentNullException(nameof(defaultProvider));
+    public void Add(IPersistentJobQueueProvider provider, IEnumerable<string> queues)
+    {
+        if (provider == null) throw new ArgumentNullException(nameof(provider));
+        if (queues == null) throw new ArgumentNullException(nameof(queues));
 
-            _providers.Add(_defaultProvider);
-        }
+        Logger.DebugFormat("Add providers");
 
-        public IEnumerator<IPersistentJobQueueProvider> GetEnumerator()
-        {
-            return _providers.GetEnumerator();
-        }
+        _providers.Add(provider);
 
-        IEnumerator IEnumerable.GetEnumerator()
-        {
-            return GetEnumerator();
-        }
+        foreach (var queue in queues) _providersByQueue.Add(queue, provider);
+    }
 
-        public void Add(IPersistentJobQueueProvider provider, IEnumerable<string> queues)
-        {
-            if (provider == null) throw new ArgumentNullException(nameof(provider));
-            if (queues == null) throw new ArgumentNullException(nameof(queues));
-
-            Logger.DebugFormat("Add providers");
-
-            _providers.Add(provider);
-
-            foreach (var queue in queues)
-            {
-                _providersByQueue.Add(queue, provider);
-            }
-        }
-
-        public IPersistentJobQueueProvider GetProvider(string queue)
-        {
-            return _providersByQueue.ContainsKey(queue)
-                ? _providersByQueue[queue]
-                : _defaultProvider;
-        }
+    public IPersistentJobQueueProvider GetProvider(string queue)
+    {
+        return _providersByQueue.ContainsKey(queue)
+            ? _providersByQueue[queue]
+            : _defaultProvider;
     }
 }
