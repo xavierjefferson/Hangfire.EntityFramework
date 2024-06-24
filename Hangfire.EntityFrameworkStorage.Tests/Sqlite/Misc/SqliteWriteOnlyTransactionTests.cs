@@ -2,14 +2,13 @@
 using Hangfire.EntityFrameworkStorage.Tests.Sqlite.Fixtures;
 using Xunit;
 
-namespace Hangfire.EntityFrameworkStorage.Tests.Sqlite.Misc
+namespace Hangfire.EntityFrameworkStorage.Tests.Sqlite.Misc;
+
+[Collection(Constants.SqliteFixtureCollectionName)]
+public class
+    SqliteWriteOnlyTransactionTests : WriteOnlyTransactionTestsBase
 {
-    [Collection(Constants.SqliteFixtureCollectionName)]
-    public class
-        SqliteWriteOnlyTransactionTests : WriteOnlyTransactionTestsBase
+    public SqliteWriteOnlyTransactionTests(SqliteTestDatabaseFixture fixture) : base(fixture)
     {
-        public SqliteWriteOnlyTransactionTests(SqliteTestDatabaseFixture fixture) : base(fixture)
-        {
-        }
     }
 }

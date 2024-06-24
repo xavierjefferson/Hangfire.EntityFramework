@@ -19,11 +19,15 @@ export class WebSocketTransport implements ITransport {
     private _webSocket?: WebSocket;
     private _headers: MessageHeaders;
 
-    public onreceive: ((data: string | ArrayBuffer) => void) | null;
-    public onclose: ((error?: Error) => void) | null;
+    onreceive: ((data: string | ArrayBuffer) => void) | null;
+    onclose: ((error?: Error) => void) | null;
 
-    constructor(httpClient: HttpClient, accessTokenFactory: (() => string | Promise<string>) | undefined, logger: ILogger,
-                logMessageContent: boolean, webSocketConstructor: WebSocketConstructor, headers: MessageHeaders) {
+    constructor(httpClient: HttpClient,
+        accessTokenFactory: (() => string | Promise<string>) | undefined,
+        logger: ILogger,
+        logMessageContent: boolean,
+        webSocketConstructor: WebSocketConstructor,
+        headers: MessageHeaders) {
         this._logger = logger;
         this._accessTokenFactory = accessTokenFactory;
         this._logMessageContent = logMessageContent;
@@ -35,7 +39,7 @@ export class WebSocketTransport implements ITransport {
         this._headers = headers;
     }
 
-    public async connect(url: string, transferFormat: TransferFormat): Promise<void> {
+    async connect(url: string, transferFormat: TransferFormat): Promise<void> {
         Arg.isRequired(url, "url");
         Arg.isRequired(transferFormat, "transferFormat");
         Arg.isIn(transferFormat, TransferFormat, "transferFormat");
@@ -55,7 +59,7 @@ export class WebSocketTransport implements ITransport {
             let opened = false;
 
             if (Platform.isNode) {
-                const headers: {[k: string]: string} = {};
+                const headers: { [k: string]: string } = {};
                 const [name, value] = getUserAgentHeader();
                 headers[name] = value;
 
@@ -64,9 +68,11 @@ export class WebSocketTransport implements ITransport {
                 }
 
                 // Only pass headers when in non-browser environments
-                webSocket = new this._webSocketConstructor(url, undefined, {
-                    headers: { ...headers, ...this._headers },
-                });
+                webSocket = new this._webSocketConstructor(url,
+                    undefined,
+                    {
+                        headers: { ...headers, ...this._headers },
+                    });
             }
 
             if (!webSocket) {
@@ -98,7 +104,8 @@ export class WebSocketTransport implements ITransport {
             };
 
             webSocket.onmessage = (message: MessageEvent) => {
-                this._logger.log(LogLevel.Trace, `(WebSockets transport) data received. ${getDataDetail(message.data, this._logMessageContent)}.`);
+                this._logger.log(LogLevel.Trace,
+                    `(WebSockets transport) data received. ${getDataDetail(message.data, this._logMessageContent)}.`);
                 if (this.onreceive) {
                     try {
                         this.onreceive(message.data);
@@ -120,10 +127,10 @@ export class WebSocketTransport implements ITransport {
                     if (typeof ErrorEvent !== "undefined" && event instanceof ErrorEvent) {
                         error = event.error;
                     } else {
-                        error = "WebSocket failed to connect. The connection could not be found on the server,"
-                        + " either the endpoint may not be a SignalR endpoint,"
-                        + " the connection ID is not present on the server, or there is a proxy blocking WebSockets."
-                        + " If you have multiple servers check that sticky sessions are enabled.";
+                        error = "WebSocket failed to connect. The connection could not be found on the server," +
+                            " either the endpoint may not be a SignalR endpoint," +
+                            " the connection ID is not present on the server, or there is a proxy blocking WebSockets." +
+                            " If you have multiple servers check that sticky sessions are enabled.";
                     }
 
                     reject(new Error(error));
@@ -132,9 +139,10 @@ export class WebSocketTransport implements ITransport {
         });
     }
 
-    public send(data: any): Promise<void> {
+    send(data: any): Promise<void> {
         if (this._webSocket && this._webSocket.readyState === this._webSocketConstructor.OPEN) {
-            this._logger.log(LogLevel.Trace, `(WebSockets transport) sending data. ${getDataDetail(data, this._logMessageContent)}.`);
+            this._logger.log(LogLevel.Trace,
+                `(WebSockets transport) sending data. ${getDataDetail(data, this._logMessageContent)}.`);
             this._webSocket.send(data);
             return Promise.resolve();
         }
@@ -142,7 +150,7 @@ export class WebSocketTransport implements ITransport {
         return Promise.reject("WebSocket is not in the OPEN state");
     }
 
-    public stop(): Promise<void> {
+    stop(): Promise<void> {
         if (this._webSocket) {
             // Manually invoke onclose callback inline so we know the HttpConnection was closed properly before returning
             // This also solves an issue where websocket.onclose could take 18+ seconds to trigger during network disconnects
@@ -166,7 +174,8 @@ export class WebSocketTransport implements ITransport {
         this._logger.log(LogLevel.Trace, "(WebSockets transport) socket closed.");
         if (this.onclose) {
             if (this._isCloseEvent(event) && (event.wasClean === false || event.code !== 1000)) {
-                this.onclose(new Error(`WebSocket closed with status code: ${event.code} (${event.reason || "no reason given"}).`));
+                this.onclose(new Error(
+                    `WebSocket closed with status code: ${event.code} (${event.reason || "no reason given"}).`));
             } else if (event instanceof Error) {
                 this.onclose(event);
             } else {

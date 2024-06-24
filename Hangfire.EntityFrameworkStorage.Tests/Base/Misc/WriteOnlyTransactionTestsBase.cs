@@ -1,1008 +1,1047 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿using System.Data.Entity;
 using Hangfire.EntityFrameworkStorage.Entities;
+using Hangfire.EntityFrameworkStorage.Extensions;
 using Hangfire.EntityFrameworkStorage.JobQueue;
 using Hangfire.EntityFrameworkStorage.Tests.Base.Fixtures;
 using Hangfire.States;
 using Moq;
 using Xunit;
 
-namespace Hangfire.EntityFrameworkStorage.Tests.Base.Misc
+namespace Hangfire.EntityFrameworkStorage.Tests.Base.Misc;
+
+public abstract class WriteOnlyTransactionTestsBase : TestBase
 {
-    public abstract class WriteOnlyTransactionTestsBase : TestBase
+    protected WriteOnlyTransactionTestsBase(DatabaseFixtureBase fixture) : base(fixture)
     {
-        protected WriteOnlyTransactionTestsBase(DatabaseFixtureBase fixture) : base(fixture)
+        var defaultProvider = new Mock<IPersistentJobQueueProvider>();
+        defaultProvider.Setup(x => x.GetJobQueue())
+            .Returns(new Mock<IPersistentJobQueue>().Object);
+    }
+
+    private static async Task<InsertTwoJobsResult> InsertTwoJobs(HangfireContext dbContext, Action<_Job>? action = null)
+    {
+        var insertTwoJobsResult = new InsertTwoJobsResult();
+
+
+        for (var i = 0; i < 2; i++)
         {
-            var defaultProvider = new Mock<IPersistentJobQueueProvider>();
-            defaultProvider.Setup(x => x.GetJobQueue())
-                .Returns(new Mock<IPersistentJobQueue>().Object);
+            var newJob = await InsertNewJob(dbContext, action);
+
+            if (i == 0)
+                insertTwoJobsResult.JobId1 = newJob.Id;
+            else
+                insertTwoJobsResult.JobId2 = newJob.Id;
         }
 
+        return insertTwoJobsResult;
+    }
 
-        private class InsertTwoJobsResult
+    private static async Task<_Job> GetTestJob(HangfireContext dbContext, string? jobId)
+    {
+        await Task.CompletedTask;
+        return dbContext.Jobs.Single(i => i.Id == jobId);
+    }
+
+    private void Commit(
+        HangfireContext connection,
+        Action<EntityFrameworkWriteOnlyTransaction> action)
+    {
+        using (var transaction = new EntityFrameworkWriteOnlyTransaction(GetStorage()))
         {
-            public string JobId1 { get; set; }
-            public string JobId2 { get; set; }
+            action(transaction);
+            transaction.Commit();
         }
+    }
 
-        private static InsertTwoJobsResult InsertTwoJobs(StatelessSessionWrapper session, Action<_Job> action = null)
+    [Fact]
+    public async Task AddJobState_JustAddsANewRecordInATable()
+    {
+        await UseJobStorageConnectionWithDbContext(async (dbContext, connection) =>
         {
-            var insertTwoJobsResult = new InsertTwoJobsResult();
+            //Arrange
+            var newJob = await InsertNewJob(dbContext);
+
+            var jobId = newJob.Id;
+
+            var state = new Mock<IState>();
+            state.Setup(x => x.Name).Returns("State");
+            state.Setup(x => x.Reason).Returns("Reason");
+            state.Setup(x => x.SerializeData())
+                .Returns(new Dictionary<string, string> { { "Name", "Value" } });
+
+            Commit(dbContext, x => x.AddJobState(jobId, state.Object));
+
+            var job = await GetTestJob(dbContext, jobId);
+            Assert.Null(job.StateName);
 
 
-            for (var i = 0; i < 2; i++)
-            {
-                var newJob = InsertNewJob(session, action);
+            var jobState = dbContext.JobStates.Single();
 
-                if (i == 0)
-                    insertTwoJobsResult.JobId1 = newJob.Id.ToString();
-                else
-                    insertTwoJobsResult.JobId2 = newJob.Id.ToString();
-            }
+            Assert.Equal(jobId, jobState.Job.Id);
+            Assert.Equal("State", jobState.Name);
+            Assert.Equal("Reason", jobState.Reason);
+            Assert.InRange(connection.Storage.UtcNow.Subtract(jobState.CreatedAt.FromEpochDate()).TotalSeconds, -3, 10);
+            Assert.Equal("{\"Name\":\"Value\"}", jobState.Data);
+        });
+    }
 
-            return insertTwoJobsResult;
-        }
-
-        private static _Job GetTestJob(StatelessSessionWrapper connection, string jobId)
+    [Fact]
+    public async Task AddRangeToSet_AddsAllItems_ToAGivenSet()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            return connection.Query<_Job>().Single(i => i.Id == long.Parse(jobId));
-        }
+            await Task.CompletedTask;
+            var items = new List<string> { "1", "2", "3" };
 
-        private void Commit(
-            StatelessSessionWrapper connection,
-            Action<EntityFrameworkWriteOnlyTransaction> action)
+            Commit(dbContext, x => x.AddRangeToSet("my-set", items));
+            dbContext.ChangeTracker.Clear();
+            var records = dbContext.Sets.Where(i => i.Key == "my-set").OrderBy(i => i.Id).Select(i => i.Value).ToList();
+            Assert.Equal(items, records);
+        });
+    }
+
+    [Fact]
+    public async Task AddRangeToSet_ThrowsAnException_WhenItemsValueIsNull()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            using (var transaction = new EntityFrameworkWriteOnlyTransaction(connection.Storage))
-            {
-                action(transaction);
-                transaction.Commit();
-            }
-        }
-
-        [Fact]
-        public void AddJobState_JustAddsANewRecordInATable()
-        {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                //Arrange
-                var newJob = InsertNewJob(session);
-
-                var jobId = newJob.Id;
-
-                var state = new Mock<IState>();
-                state.Setup(x => x.Name).Returns("State");
-                state.Setup(x => x.Reason).Returns("Reason");
-                state.Setup(x => x.SerializeData())
-                    .Returns(new Dictionary<string, string> {{"Name", "Value"}});
-
-                Commit(session, x => x.AddJobState(jobId.ToString(), state.Object));
-
-                var job = GetTestJob(session, jobId.ToString());
-                Assert.Null(job.StateName);
-
-
-                var jobState = session.Query<_JobState>().Single();
-
-                Assert.Equal(jobId, jobState.Job.Id);
-                Assert.Equal("State", jobState.Name);
-                Assert.Equal("Reason", jobState.Reason);
-                Assert.InRange(connection.Storage.UtcNow.Subtract(jobState.CreatedAt).TotalSeconds, -3, 10);
-                Assert.Equal("{\"Name\":\"Value\"}", jobState.Data);
-            });
-        }
-
-        [Fact]
-        public void AddRangeToSet_AddsAllItems_ToAGivenSet()
-        {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                var items = new List<string> {"1", "2", "3"};
-
-                Commit(session, x => x.AddRangeToSet("my-set", items));
-
-                var records = session.Query<_Set>().Where(i => i.Key == "my-set").Select(i => i.Value).ToList();
-                Assert.Equal(items, records);
-            });
-        }
-
-        [Fact]
-        public void AddRangeToSet_ThrowsAnException_WhenItemsValueIsNull()
-        {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                var exception = Assert.Throws<ArgumentNullException>(
-                    () => Commit(session, x => x.AddRangeToSet("my-set", null)));
-
-                Assert.Equal("items", exception.ParamName);
-            });
-        }
-
-        [Fact]
-        public void AddRangeToSet_ThrowsAnException_WhenKeyIsNull()
-        {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                var exception = Assert.Throws<ArgumentNullException>(
-                    () => Commit(session, x => x.AddRangeToSet(null, new List<string>())));
-
-                Assert.Equal("key", exception.ParamName);
-            });
-        }
-
-        [Fact]
-        public void AddToQueue_CallsEnqueue_OnTargetPersistentQueue()
-        {
-            var correctJobQueue = new Mock<IPersistentJobQueue>();
-            var correctProvider = new Mock<IPersistentJobQueueProvider>();
-            correctProvider.Setup(x => x.GetJobQueue())
-                .Returns(correctJobQueue.Object);
-
-
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                connection.Storage.QueueProviders.Add(correctProvider.Object, new[] {"default"});
-                var job = InsertNewJob(session);
-                Commit(session, x => x.AddToQueue("default", job.Id.ToString()));
-
-                correctJobQueue.Verify(x =>
-                    x.Enqueue(It.IsNotNull<StatelessSessionWrapper>(), "default", job.Id.ToString()));
-            });
-        }
-
-        [Fact]
-        public void AddToSet_AddsARecord_IfThereIsNo_SuchKeyAndValue()
-        {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                Commit(session, x => x.AddToSet("my-key", "my-value"));
-
-                var record = session.Query<_Set>().Single();
-
-                Assert.Equal("my-key", record.Key);
-                Assert.Equal("my-value", record.Value);
-                Assert.Equal(0.0, record.Score, 2);
-            });
-        }
-
-        [Fact]
-        public void AddToSet_AddsARecord_WhenKeyIsExists_ButValuesAreDifferent()
-        {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                Commit(session, x =>
-                {
-                    x.AddToSet("my-key", "my-value");
-                    x.AddToSet("my-key", "another-value");
-                });
-
-                var recordCount = session.Query<_Set>().Count();
-
-                Assert.Equal(2, recordCount);
-            });
-        }
-
-        [Fact]
-        public void AddToSet_DoesNotAddARecord_WhenBothKeyAndValueAreExist()
-        {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                Commit(session, x =>
-                {
-                    x.AddToSet("my-key", "my-value");
-                    x.AddToSet("my-key", "my-value");
-                });
-
-                var recordCount = session.Query<_Set>().Count();
-                Assert.Equal(1, recordCount);
-            });
-        }
-
-        [Fact]
-        public void AddToSet_WithScore_AddsARecordWithScore_WhenBothKeyAndValueAreNotExist()
-        {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                Commit(session, x => x.AddToSet("my-key", "my-value", 3.2));
-
-                var record = session.Query<_Set>().Single();
-
-                Assert.Equal("my-key", record.Key);
-                Assert.Equal("my-value", record.Value);
-                Assert.Equal(3.2, record.Score, 3);
-            });
-        }
-
-        [Fact]
-        public void AddToSet_WithScore_UpdatesAScore_WhenBothKeyAndValueAreExist()
-        {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                Commit(session, x =>
-                {
-                    x.AddToSet("my-key", "my-value");
-                    x.AddToSet("my-key", "my-value", 3.2);
-                });
-
-                var record = session.Query<_Set>().Single();
-
-                Assert.Equal(3.2, record.Score, 3);
-            });
-        }
-
-        [Fact]
-        public void Ctor_ThrowsAnException_IfStorageIsNull()
-        {
+            await Task.CompletedTask;
             var exception = Assert.Throws<ArgumentNullException>(
-                () => new EntityFrameworkWriteOnlyTransaction(null));
+                () => Commit(dbContext, x => x.AddRangeToSet("my-set", null)));
 
-            Assert.Equal("storage", exception.ParamName);
-        }
+            Assert.Equal("items", exception.ParamName);
+        });
+    }
 
-        [Fact]
-        public void DecrementCounter_AddsRecordToCounterTable_WithNegativeValue()
+    [Fact]
+    public async Task AddRangeToSet_ThrowsAnException_WhenKeyIsNull()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                Commit(session, x => x.DecrementCounter("my-key"));
+            await Task.CompletedTask;
+            var exception = Assert.Throws<ArgumentNullException>(
+                () => Commit(dbContext, x => x.AddRangeToSet(null, new List<string>())));
 
-                var record = session.Query<_Counter>().Single();
+            Assert.Equal("key", exception.ParamName);
+        });
+    }
 
-                Assert.Equal("my-key", record.Key);
-                Assert.Equal(-1, record.Value);
-                Assert.Null(record.ExpireAt);
-            });
-        }
+    [Fact]
+    public async Task AddToQueue_CallsEnqueue_OnTargetPersistentQueue()
+    {
+        var correctJobQueue = new Mock<IPersistentJobQueue>();
+        var correctProvider = new Mock<IPersistentJobQueueProvider>();
+        correctProvider.Setup(x => x.GetJobQueue())
+            .Returns(correctJobQueue.Object);
 
-        [Fact]
-        public void DecrementCounter_WithExistingKey_AddsAnotherRecord()
+
+        await UseJobStorageConnectionWithDbContext(async (dbContext, connection) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                Commit(session, x =>
-                {
-                    x.DecrementCounter("my-key");
-                    x.DecrementCounter("my-key");
-                });
+            connection.Storage.QueueProviders.Add(correctProvider.Object, new[] { "default" });
+            var job = await InsertNewJob(dbContext);
+            Commit(dbContext, x => x.AddToQueue("default", job.Id));
 
+            correctJobQueue.Verify(x =>
+                x.Enqueue(It.IsNotNull<HangfireContext>(), "default", job.Id));
+        });
+    }
 
-                var recordCount = session.Query<_Counter>().Count();
-
-                Assert.Equal(2, recordCount);
-            });
-        }
-
-        [Fact]
-        public void DecrementCounter_WithExpiry_AddsARecord_WithExpirationTimeSet()
+    [Fact]
+    public async Task AddToSet_AddsARecord_IfThereIsNo_SuchKeyAndValue()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                Commit(session, x => x.DecrementCounter("my-key", TimeSpan.FromDays(1)));
+            await Task.CompletedTask;
+            Commit(dbContext, x => x.AddToSet("my-key", "my-value"));
 
-                var record = session.Query<_Counter>().Single();
+            var record = dbContext.Sets.Single();
 
-                Assert.Equal("my-key", record.Key);
-                Assert.Equal(-1, record.Value);
-                Assert.NotNull(record.ExpireAt);
+            Assert.Equal("my-key", record.Key);
+            Assert.Equal("my-value", record.Value);
+            Assert.Equal(0.0, record.Score, 2);
+        });
+    }
 
-                var expireAt = (DateTime) record.ExpireAt;
-
-                Assert.True(session.Storage.UtcNow.AddHours(23) < expireAt);
-                Assert.True(expireAt < session.Storage.UtcNow.AddHours(25));
-            });
-        }
-
-        [Fact]
-        public void ExpireHash_SetsExpirationTimeOnAHash_WithGivenKey()
+    [Fact]
+    public async Task AddToSet_AddsARecord_WhenKeyIsExists_ButValuesAreDifferent()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
+            await Task.CompletedTask;
+            Commit(dbContext, x =>
             {
-                // Arrange
-                session.Insert(new _Hash {Key = "hash-1", Field = "field"});
-                session.Insert(new _Hash {Key = "hash-2", Field = "field"});
-                //does nothing
-
-                // Act
-                Commit(session, x => x.ExpireHash("hash-1", TimeSpan.FromMinutes(60)));
-
-                // Assert
-
-                var records = session.Query<_Hash>()
-                    .ToDictionary(x => x.Key, x => x.ExpireAt);
-                Assert.True(session.Storage.UtcNow.AddMinutes(59) < records["hash-1"]);
-                Assert.True(records["hash-1"] < session.Storage.UtcNow.AddMinutes(61));
-                Assert.Null(records["hash-2"]);
+                x.AddToSet("my-key", "my-value");
+                x.AddToSet("my-key", "another-value");
             });
-        }
 
-        [Fact]
-        public void ExpireHash_ThrowsAnException_WhenKeyIsNull()
+            var recordCount = dbContext.Sets.Count();
+
+            Assert.Equal(2, recordCount);
+        });
+    }
+
+    [Fact]
+    public async Task AddToSet_DoesNotAddARecord_WhenBothKeyAndValueAreExist()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
+            await Task.CompletedTask;
+            Commit(dbContext, x =>
             {
-                var exception = Assert.Throws<ArgumentNullException>(
-                    () => Commit(session, x => x.ExpireHash(null, TimeSpan.FromMinutes(5))));
-
-                Assert.Equal("key", exception.ParamName);
+                x.AddToSet("my-key", "my-value");
+                x.AddToSet("my-key", "my-value");
             });
-        }
 
-        [Fact]
-        public void ExpireJob_SetsJobExpirationData()
+            Assert.Single(dbContext.Sets);
+        });
+    }
+
+    [Fact]
+    public async Task AddToSet_WithScore_AddsARecordWithScore_WhenBothKeyAndValueAreNotExist()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                // Arrange
-                var insertTwoResult = InsertTwoJobs(session);
+            await Task.CompletedTask;
+            Commit(dbContext, x => x.AddToSet("my-key", "my-value", 3.2));
 
-                Commit(session, x => x.ExpireJob(insertTwoResult.JobId1, TimeSpan.FromDays(1)));
-                //Act
+            var record = dbContext.Sets.Single();
 
-                var job = GetTestJob(session, insertTwoResult.JobId1);
-                //Assert
-                Assert.True(session.Storage.UtcNow.AddMinutes(-1) < job.ExpireAt &&
-                            job.ExpireAt <= session.Storage.UtcNow.AddDays(1));
+            Assert.Equal("my-key", record.Key);
+            Assert.Equal("my-value", record.Value);
+            Assert.Equal(3.2, record.Score, 3);
+        });
+    }
 
-                var anotherJob = GetTestJob(session, insertTwoResult.JobId2);
-                Assert.Null(anotherJob.ExpireAt);
-            });
-        }
-
-        [Fact]
-        public void ExpireList_SetsExpirationTime_OnAList_WithGivenKey()
+    [Fact]
+    public async Task AddToSet_WithScore_UpdatesAScore_WhenBothKeyAndValueAreExist()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
+            await Task.CompletedTask;
+            Commit(dbContext, x =>
             {
-                // Arrange
-                session.Insert(new _List {Key = "list-1", Value = "1"});
-                session.Insert(new _List {Key = "list-2", Value = "1"});
-                //does nothing
-
-                // Act
-                Commit(session, x => x.ExpireList("list-1", TimeSpan.FromMinutes(60)));
-
-                // Assert
-
-                var records = session.Query<_List>()
-                    .ToDictionary(x => x.Key, x => x.ExpireAt);
-                Assert.True(session.Storage.UtcNow.AddMinutes(59) < records["list-1"]);
-                Assert.True(records["list-1"] < session.Storage.UtcNow.AddMinutes(61));
-                Assert.Null(records["list-2"]);
+                x.AddToSet("my-key", "my-value");
+                x.AddToSet("my-key", "my-value", 3.2);
             });
-        }
 
-        [Fact]
-        public void ExpireList_ThrowsAnException_WhenKeyIsNull()
+            var record = dbContext.Sets.Single();
+
+            Assert.Equal(3.2, record.Score, 3);
+        });
+    }
+
+    [Fact]
+    public async Task Ctor_ThrowsAnException_IfStorageIsNull()
+    {
+        await Task.CompletedTask;
+        var exception = Assert.Throws<ArgumentNullException>(
+            () => new EntityFrameworkWriteOnlyTransaction(null));
+
+        Assert.Equal("storage", exception.ParamName);
+    }
+
+    [Fact]
+    public async Task DecrementCounter_AddsRecordToCounterTable_WithNegativeValue()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                var exception = Assert.Throws<ArgumentNullException>(
-                    () => Commit(session, x => x.ExpireList(null, TimeSpan.FromSeconds(45))));
+            await Task.CompletedTask;
+            Commit(dbContext, x => x.DecrementCounter("my-key"));
 
-                Assert.Equal("key", exception.ParamName);
-            });
-        }
+            var record = dbContext.Counters.Single();
 
-        [Fact]
-        public void ExpireSet_SetsExpirationTime_OnASet_WithGivenKey()
+            Assert.Equal("my-key", record.Key);
+            Assert.Equal(-1, record.Value);
+            Assert.Null(record.ExpireAt);
+        });
+    }
+
+    [Fact]
+    public async Task DecrementCounter_WithExistingKey_AddsAnotherRecord()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
+            await Task.CompletedTask;
+            Commit(dbContext, x =>
             {
-                // Arrange
-                session.Insert(new _Set {Key = "set-1", Value = "1"});
-                session.Insert(new _Set {Key = "set-2", Value = "1"});
-                //does nothing
-
-                // Act
-                Commit(session, x => x.ExpireSet("set-1", TimeSpan.FromMinutes(60)));
-
-                // Assert
-
-                var records = session.Query<_Set>()
-                    .ToDictionary(x => x.Key, x => x.ExpireAt);
-                Assert.True(session.Storage.UtcNow.AddMinutes(59) < records["set-1"]);
-                Assert.True(records["set-1"] < session.Storage.UtcNow.AddMinutes(61));
-                Assert.Null(records["set-2"]);
+                x.DecrementCounter("my-key");
+                x.DecrementCounter("my-key");
             });
-        }
 
-        [Fact]
-        public void ExpireSet_ThrowsAnException_WhenKeyIsNull()
+
+            var recordCount = dbContext.Counters.Count();
+
+            Assert.Equal(2, recordCount);
+        });
+    }
+
+    [Fact]
+    public async Task DecrementCounter_WithExpiry_AddsARecord_WithExpirationTimeSet()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                var exception = Assert.Throws<ArgumentNullException>(
-                    () => Commit(session, x => x.ExpireSet(null, TimeSpan.FromSeconds(45))));
+            await Task.CompletedTask;
+            Commit(dbContext, x => x.DecrementCounter("my-key", TimeSpan.FromDays(1)));
 
-                Assert.Equal("key", exception.ParamName);
-            });
-        }
+            var record = dbContext.Counters.Single();
 
-        [Fact]
-        public void IncrementCounter_AddsRecordToCounterTable_WithPositiveValue()
+            Assert.Equal("my-key", record.Key);
+            Assert.Equal(-1, record.Value);
+            Assert.NotNull(record.ExpireAt);
+
+            var expireAt = record.ExpireAt.FromEpochDate();
+
+            Assert.True(DateTime.UtcNow.AddHours(23) < expireAt);
+            Assert.True(expireAt < DateTime.UtcNow.AddHours(25));
+        });
+    }
+
+    [Fact]
+    public async Task ExpireHash_SetsExpirationTimeOnAHash_WithGivenKey()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                //Arrange
-                Commit(session, x => x.IncrementCounter("my-key"));
-                //Act
-                var record = session.Query<_Counter>().Single();
-                //Assert
-                Assert.Equal("my-key", record.Key);
-                Assert.Equal(1, record.Value);
-                Assert.Null(record.ExpireAt);
-            });
-        }
+            // Arrange
+            dbContext.Add(new _Hash { Key = "hash-1", Name = "field" });
+            dbContext.Add(new _Hash { Key = "hash-2", Name = "field" });
+            await dbContext.SaveChangesAsync();
+            //does nothing
 
-        [Fact]
-        public void IncrementCounter_WithExistingKey_AddsAnotherRecord()
+            // Act
+            Commit(dbContext, x => x.ExpireHash("hash-1", TimeSpan.FromMinutes(60)));
+
+            // Assert
+            dbContext.ChangeTracker.Clear();
+            var records = dbContext.Hashes
+                .ToDictionary(x => x.Key, x => x.ExpireAt);
+            Assert.True(DateTime.UtcNow.AddMinutes(59).ToEpochDate() < records["hash-1"]);
+            Assert.True(records["hash-1"] < DateTime.UtcNow.AddMinutes(61).ToEpochDate());
+            Assert.Null(records["hash-2"]);
+        });
+    }
+
+    [Fact]
+    public async Task ExpireHash_ThrowsAnException_WhenKeyIsNull()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                //Arrange
-                Commit(session, x =>
-                {
-                    x.IncrementCounter("my-key");
-                    x.IncrementCounter("my-key");
-                });
-                //Act
-                var recordCount = session.Query<_Counter>().Count();
-                //Assert
+            await Task.CompletedTask;
+            var exception = Assert.Throws<ArgumentNullException>(
+                () => Commit(dbContext, x => x.ExpireHash(null, TimeSpan.FromMinutes(5))));
 
-                Assert.Equal(2, recordCount);
-            });
-        }
+            Assert.Equal("key", exception.ParamName);
+        });
+    }
 
-        [Fact]
-        public void IncrementCounter_WithExpiry_AddsARecord_WithExpirationTimeSet()
+    [Fact]
+    public async Task ExpireJob_SetsJobExpirationData()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                //Arrange
-                Commit(session, x => x.IncrementCounter("my-key", TimeSpan.FromDays(1)));
-                //Act
-                var record = session.Query<_Counter>().Single();
-                //Assert
-                Assert.Equal("my-key", record.Key);
-                Assert.Equal(1, record.Value);
-                Assert.NotNull(record.ExpireAt);
+            // Arrange
+            var insertTwoResult = await InsertTwoJobs(dbContext);
 
-                var expireAt = (DateTime) record.ExpireAt;
+            Commit(dbContext, x => x.ExpireJob(insertTwoResult.JobId1, TimeSpan.FromDays(1)));
+            //Act
+            dbContext.ChangeTracker.Clear();
+            var job = await GetTestJob(dbContext, insertTwoResult.JobId1);
+            //Assert
 
-                Assert.True(session.Storage.UtcNow.AddHours(23) < expireAt);
-                Assert.True(expireAt < session.Storage.UtcNow.AddHours(25));
-            });
-        }
+            Assert.True(DateTime.UtcNow.AddMinutes(-1).ToEpochDate() < job.ExpireAt &&
+                        job.ExpireAt <= DateTime.UtcNow.AddDays(1).ToEpochDate());
 
-        [Fact]
-        public void InsertToList_AddsAnotherRecord_WhenBothKeyAndValueAreExist()
+            var anotherJob = await GetTestJob(dbContext, insertTwoResult.JobId2);
+            Assert.Null(anotherJob.ExpireAt);
+        });
+    }
+
+    [Fact]
+    public async Task ExpireList_SetsExpirationTime_OnAList_WithGivenKey()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                //Arrange
-                Commit(session, x =>
-                {
-                    x.InsertToList("my-key", "my-value");
-                    x.InsertToList("my-key", "my-value");
-                });
-                //Act
-                var recordCount = session.Query<_List>().Count();
-                //Assert
-                Assert.Equal(2, recordCount);
-            });
-        }
+            // Arrange
+            dbContext.Add(new _List { Key = "list-1", Value = "1" });
+            dbContext.Add(new _List { Key = "list-2", Value = "1" });
+            await dbContext.SaveChangesAsync();
+            //does nothing
 
-        [Fact]
-        public void InsertToList_AddsARecord_WithGivenValues()
+            // Act
+            Commit(dbContext, x => x.ExpireList("list-1", TimeSpan.FromMinutes(60)));
+            dbContext.ChangeTracker.Clear();
+            // Assert
+
+            var records = dbContext.Lists
+                .ToDictionary(x => x.Key, x => x.ExpireAt);
+            Assert.True(DateTime.UtcNow.AddMinutes(59).ToEpochDate() < records["list-1"]);
+            Assert.True(records["list-1"] < DateTime.UtcNow.AddMinutes(61).ToEpochDate());
+            Assert.Null(records["list-2"]);
+        });
+    }
+
+    [Fact]
+    public async Task ExpireList_ThrowsAnException_WhenKeyIsNull()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                //Arrange
-                Commit(session, x => x.InsertToList("my-key", "my-value"));
-                //Act
-                var record = session.Query<_List>().Single();
+            await Task.CompletedTask;
+            var exception = Assert.Throws<ArgumentNullException>(
+                () => Commit(dbContext, x => x.ExpireList(null, TimeSpan.FromSeconds(45))));
 
-                //Assert
-                Assert.Equal("my-key", record.Key);
-                Assert.Equal("my-value", record.Value);
-            });
-        }
+            Assert.Equal("key", exception.ParamName);
+        });
+    }
 
-        [Fact]
-        public void PersistHash_ClearsExpirationTime_OnAGivenHash()
+    [Fact]
+    public async Task ExpireSet_SetsExpirationTime_OnASet_WithGivenKey()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                // Arrange
-                session.Insert(
-                    new _Hash {Key = "hash-1", Field = "field", ExpireAt = session.Storage.UtcNow.AddDays(1)});
-                session.Insert(
-                    new _Hash {Key = "hash-2", Field = "field", ExpireAt = session.Storage.UtcNow.AddDays(1)});
+            // Arrange
+            dbContext.Add(new _Set { Key = "set-1", Value = "1" });
+            dbContext.Add(new _Set { Key = "set-2", Value = "1" });
+            await dbContext.SaveChangesAsync();
+            //does nothing
 
-                // Act
-                Commit(session, x => x.PersistHash("hash-1"));
+            // Act
+            Commit(dbContext, x => x.ExpireSet("set-1", TimeSpan.FromMinutes(60)));
+            dbContext.ChangeTracker.Clear();
+            // Assert
 
-                // Assert
+            var records = dbContext.Sets
+                .ToDictionary(x => x.Key, x => x.ExpireAt);
+            Assert.True(DateTime.UtcNow.AddMinutes(59).ToEpochDate() < records["set-1"]);
+            Assert.True(records["set-1"] < DateTime.UtcNow.AddMinutes(61).ToEpochDate());
+            Assert.Null(records["set-2"]);
+        });
+    }
 
-                var records = session.Query<_Hash>()
-                    .ToDictionary(x => x.Key, x => x.ExpireAt);
-                Assert.Null(records["hash-1"]);
-                Assert.NotNull(records["hash-2"]);
-            });
-        }
-
-        [Fact]
-        public void PersistHash_ThrowsAnException_WhenKeyIsNull()
+    [Fact]
+    public async Task ExpireSet_ThrowsAnException_WhenKeyIsNull()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                var exception = Assert.Throws<ArgumentNullException>(
-                    () => Commit(session, x => x.PersistHash(null)));
-                //Assert
+            await Task.CompletedTask;
+            var exception = Assert.Throws<ArgumentNullException>(
+                () => Commit(dbContext, x => x.ExpireSet(null, TimeSpan.FromSeconds(45))));
 
-                Assert.Equal("key", exception.ParamName);
-            });
-        }
+            Assert.Equal("key", exception.ParamName);
+        });
+    }
 
-        [Fact]
-        public void PersistJob_ClearsTheJobExpirationData()
+    [Fact]
+    public async Task IncrementCounter_AddsRecordToCounterTable_WithPositiveValue()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                //Arrange
-                var insertTwoResult = InsertTwoJobs(session,
-                    item => { item.ExpireAt = item.CreatedAt = session.Storage.UtcNow; });
+            await Task.CompletedTask;
+            //Arrange
+            Commit(dbContext, x => x.IncrementCounter("my-key"));
+            //Act
+            var record = dbContext.Counters.Single();
+            //Assert
+            Assert.Equal("my-key", record.Key);
+            Assert.Equal(1, record.Value);
+            Assert.Null(record.ExpireAt);
+        });
+    }
 
-                Commit(session, x => x.PersistJob(insertTwoResult.JobId1));
-
-                //Act
-
-                var job = GetTestJob(session, insertTwoResult.JobId1);
-                //Assert
-                Assert.Null(job.ExpireAt);
-
-                var anotherJob = GetTestJob(session, insertTwoResult.JobId2);
-                Assert.NotNull(anotherJob.ExpireAt);
-            });
-        }
-
-        [Fact]
-        public void PersistList_ClearsExpirationTime_OnAGivenHash()
+    [Fact]
+    public async Task IncrementCounter_WithExistingKey_AddsAnotherRecord()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
+            await Task.CompletedTask;
+            //Arrange
+            Commit(dbContext, x =>
             {
-                // Arrange
-                session.Insert(new _List {Key = "list-1", ExpireAt = session.Storage.UtcNow.AddDays(-1)});
-                session.Insert(new _List {Key = "list-2", ExpireAt = session.Storage.UtcNow.AddDays(-1)});
-                //does nothing
-                // Act
-                Commit(session, x => x.PersistList("list-1"));
-
-                // Assert
-
-                var records = session.Query<_List>()
-                    .ToDictionary(x => x.Key, x => x.ExpireAt);
-                Assert.Null(records["list-1"]);
-                Assert.NotNull(records["list-2"]);
+                x.IncrementCounter("my-key");
+                x.IncrementCounter("my-key");
             });
-        }
+            //Act
+            var recordCount = dbContext.Counters.Count();
+            //Assert
 
-        [Fact]
-        public void PersistList_ThrowsAnException_WhenKeyIsNull()
+            Assert.Equal(2, recordCount);
+        });
+    }
+
+    [Fact]
+    public async Task IncrementCounter_WithExpiry_AddsARecord_WithExpirationTimeSet()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                var exception = Assert.Throws<ArgumentNullException>(
-                    () => Commit(session, x => x.PersistList(null)));
-                //Assert
+            await Task.CompletedTask;
+            //Arrange
+            Commit(dbContext, x => x.IncrementCounter("my-key", TimeSpan.FromDays(1)));
+            //Act
+            var record = dbContext.Counters.Single();
+            //Assert
+            Assert.Equal("my-key", record.Key);
+            Assert.Equal(1, record.Value);
+            Assert.NotNull(record.ExpireAt);
 
-                Assert.Equal("key", exception.ParamName);
-            });
-        }
+            var expireAt = record.ExpireAt.FromEpochDate();
 
-        [Fact]
-        public void PersistSet_ClearsExpirationTime_OnAGivenHash()
+            Assert.True(DateTime.UtcNow.AddHours(23) < expireAt);
+            Assert.True(expireAt < DateTime.UtcNow.AddHours(25));
+        });
+    }
+
+    [Fact]
+    public async Task InsertToList_AddsAnotherRecord_WhenBothKeyAndValueAreExist()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
+            await Task.CompletedTask;
+            //Arrange
+            Commit(dbContext, x =>
             {
-                // Arrange
-                session.Insert(new _Set {Key = "set-1", Value = "1", ExpireAt = session.Storage.UtcNow.AddDays(-1)});
-                session.Insert(new _Set {Key = "set-2", Value = "1", ExpireAt = session.Storage.UtcNow.AddDays(-1)});
-
-                // Act
-                Commit(session, x => x.PersistSet("set-1"));
-
-                // Assert
-                var records = session.Query<_Set>()
-                    .ToDictionary(x => x.Key, x => x.ExpireAt);
-                Assert.Null(records["set-1"]);
-                Assert.NotNull(records["set-2"]);
+                x.InsertToList("my-key", "my-value");
+                x.InsertToList("my-key", "my-value");
             });
-        }
+            //Act
+            var recordCount = dbContext.Lists.Count();
+            //Assert
+            Assert.Equal(2, recordCount);
+        });
+    }
 
-        [Fact]
-        public void PersistSet_ThrowsAnException_WhenKeyIsNull()
+    [Fact]
+    public async Task InsertToList_AddsARecord_WithGivenValues()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                var exception = Assert.Throws<ArgumentNullException>(
-                    () => Commit(session, x => x.PersistSet(null)));
-                //Assert
+            await Task.CompletedTask;
+            //Arrange
+            Commit(dbContext, x => x.InsertToList("my-key", "my-value"));
+            //Act
+            var record = dbContext.Lists.Single();
 
-                Assert.Equal("key", exception.ParamName);
-            });
-        }
+            //Assert
+            Assert.Equal("my-key", record.Key);
+            Assert.Equal("my-value", record.Value);
+        });
+    }
 
-        [Fact]
-        public void RemoveFromList_DoesNotRemoveRecords_WithSameKey_ButDifferentValue()
+    [Fact]
+    public async Task PersistHash_ClearsExpirationTime_OnAGivenHash()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                //Arrange
-                Commit(session, x =>
-                {
-                    x.InsertToList("my-key", "my-value");
-                    x.RemoveFromList("my-key", "different-value");
-                });
+            // Arrange
+            dbContext.Add(new _Hash { Key = "hash-1", Name = "field", ExpireAt = DateTime.UtcNow.AddDays(1).ToEpochDate() });
+            dbContext.Add(new _Hash { Key = "hash-2", Name = "field", ExpireAt = DateTime.UtcNow.AddDays(1).ToEpochDate() });
+            await dbContext.SaveChangesAsync();
 
-                //Act
+            // Act
+            Commit(dbContext, x => x.PersistHash("hash-1"));
+            dbContext.ChangeTracker.Clear();
+            // Assert
 
-                var recordCount = session.Query<_List>().Count();
-                //Assert
-                Assert.Equal(1, recordCount);
-            });
-        }
+            var records = dbContext.Hashes
+                .ToDictionary(x => x.Key, x => x.ExpireAt);
+            Assert.Null(records["hash-1"]);
+            Assert.NotNull(records["hash-2"]);
+        });
+    }
 
-        [Fact]
-        public void RemoveFromList_DoesNotRemoveRecords_WithSameValue_ButDifferentKey()
+    [Fact]
+    public async Task PersistHash_ThrowsAnException_WhenKeyIsNull()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                //Arrange
-                Commit(session, x =>
-                {
-                    x.InsertToList("my-key", "my-value");
-                    x.RemoveFromList("different-key", "my-value");
-                });
-                //Act
+            await Task.CompletedTask;
+            var exception = Assert.Throws<ArgumentNullException>(
+                () => Commit(dbContext, x => x.PersistHash(null)));
+            //Assert
 
-                var recordCount = session.Query<_List>().Count();
-                //Assert
-                Assert.Equal(1, recordCount);
-            });
-        }
+            Assert.Equal("key", exception.ParamName);
+        });
+    }
 
-        [Fact]
-        public void RemoveFromList_RemovesAllRecords_WithGivenKeyAndValue()
+    [Fact]
+    public async Task PersistJob_ClearsTheJobExpirationData()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                //Arrange
-                Commit(session, x =>
-                {
-                    x.InsertToList("my-key", "my-value");
-                    x.InsertToList("my-key", "my-value");
-                    x.RemoveFromList("my-key", "my-value");
-                });
-                //Act
+            //Arrange
+            var insertTwoResult = await InsertTwoJobs(dbContext,
+                item => { item.ExpireAt = item.CreatedAt = DateTime.UtcNow.ToEpochDate(); });
 
-                var recordCount = session.Query<_List>().Count();
-                //Assert
-                Assert.Equal(0, recordCount);
-            });
-        }
+            Commit(dbContext, x => x.PersistJob(insertTwoResult.JobId1));
 
-        [Fact]
-        public void RemoveFromSet_DoesNotRemoveRecord_WithSameKey_AndDifferentValue()
+            //Act
+            dbContext.ChangeTracker.Clear();
+            var job = await GetTestJob(dbContext, insertTwoResult.JobId1);
+            //Assert
+            Assert.Null(job.ExpireAt);
+
+            var anotherJob = await GetTestJob(dbContext, insertTwoResult.JobId2);
+            Assert.NotNull(anotherJob.ExpireAt);
+        });
+    }
+
+    [Fact]
+    public async Task PersistList_ClearsExpirationTime_OnAGivenHash()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                //Arrange
-                Commit(session, x =>
-                {
-                    x.AddToSet("my-key", "my-value");
-                    x.RemoveFromSet("my-key", "different-value");
-                });
-                //Act
+            // Arrange
+            dbContext.Add(new _List { Key = "list-1", ExpireAt = DateTime.UtcNow.AddDays(-1).ToEpochDate() });
+            await dbContext.SaveChangesAsync();
+            dbContext.Add(new _List { Key = "list-2", ExpireAt = DateTime.UtcNow.AddDays(-1).ToEpochDate() });
+            await dbContext.SaveChangesAsync();
+            //does nothing
+            // Act
+            Commit(dbContext, x => x.PersistList("list-1"));
+            dbContext.ChangeTracker.Clear();
+            // Assert
 
-                var recordCount = session.Query<_Set>().Count();
-                //Assert
-                Assert.Equal(1, recordCount);
-            });
-        }
+            var records = dbContext.Lists
+                .ToDictionary(x => x.Key, x => x.ExpireAt);
+            Assert.Null(records["list-1"]);
+            Assert.NotNull(records["list-2"]);
+        });
+    }
 
-        [Fact]
-        public void RemoveFromSet_DoesNotRemoveRecord_WithSameValue_AndDifferentKey()
+    [Fact]
+    public async Task PersistList_ThrowsAnException_WhenKeyIsNull()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                //Arrange
-                Commit(session, x =>
-                {
-                    x.AddToSet("my-key", "my-value");
-                    x.RemoveFromSet("different-key", "my-value");
-                });
-                //Act
+            await Task.CompletedTask;
+            var exception = Assert.Throws<ArgumentNullException>(
+                () => Commit(dbContext, x => x.PersistList(null)));
+            //Assert
 
-                var recordCount = session.Query<_Set>().Count();
-                //Assert
-                Assert.Equal(1, recordCount);
-            });
-        }
+            Assert.Equal("key", exception.ParamName);
+        });
+    }
 
-        [Fact]
-        public void RemoveFromSet_RemovesARecord_WithGivenKeyAndValue()
+    [Fact]
+    public async Task PersistSet_ClearsExpirationTime_OnAGivenHash()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                //Arrange
-                Commit(session, x =>
-                {
-                    x.AddToSet("my-key", "my-value");
-                    x.RemoveFromSet("my-key", "my-value");
-                });
-                //Act
+            // Arrange
+            dbContext.Add(new _Set { Key = "set-1", Value = "1", ExpireAt = DateTime.UtcNow.AddDays(-1).ToEpochDate() });
+            await dbContext.SaveChangesAsync();
+            dbContext.Add(new _Set { Key = "set-2", Value = "1", ExpireAt = DateTime.UtcNow.AddDays(-1).ToEpochDate() });
+            await dbContext.SaveChangesAsync();
 
-                var recordCount = session.Query<_Set>().Count();
-                //Assert
-                Assert.Equal(0, recordCount);
-            });
-        }
+            // Act
+            Commit(dbContext, x => x.PersistSet("set-1"));
+            dbContext.ChangeTracker.Clear();
+            // Assert
+            var records = dbContext.Sets
+                .ToDictionary(x => x.Key, x => x.ExpireAt);
+            Assert.Null(records["set-1"]);
+            Assert.NotNull(records["set-2"]);
+        });
+    }
 
-        [Fact]
-        public void RemoveHash_RemovesAllHashRecords()
+    [Fact]
+    public async Task PersistSet_ThrowsAnException_WhenKeyIsNull()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                // Arrange
-                Commit(session, x => x.SetRangeInHash("some-hash", new Dictionary<string, string>
-                {
-                    {"Key1", "Value1"},
-                    {"Key2", "Value2"}
-                }));
+            await Task.CompletedTask;
+            var exception = Assert.Throws<ArgumentNullException>(
+                () => Commit(dbContext, x => x.PersistSet(null)));
+            //Assert
 
-                // Act
-                Commit(session, x => x.RemoveHash("some-hash"));
+            Assert.Equal("key", exception.ParamName);
+        });
+    }
 
-                // Assert
-                var count = session.Query<_Hash>().Count();
-                Assert.Equal(0, count);
-            });
-        }
-
-        [Fact]
-        public void RemoveHash_ThrowsAnException_WhenKeyIsNull()
+    [Fact]
+    public async Task RemoveFromList_DoesNotRemoveRecords_WithSameKey_ButDifferentValue()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
+            await Task.CompletedTask;
+            //Arrange
+            Commit(dbContext, x =>
             {
-                //Assert
-                Assert.Throws<ArgumentNullException>(
-                    () => Commit(session, x => x.RemoveHash(null)));
+                x.InsertToList("my-key", "my-value");
+                x.RemoveFromList("my-key", "different-value");
             });
-        }
 
-        [Fact]
-        public void RemoveSet_RemovesASet_WithAGivenKey()
+            //Act
+
+            //Assert
+            Assert.Single(dbContext.Lists);
+        });
+    }
+
+    [Fact]
+    public async Task RemoveFromList_DoesNotRemoveRecords_WithSameValue_ButDifferentKey()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
+            await Task.CompletedTask;
+            //Arrange
+            Commit(dbContext, x =>
             {
-                // Arrange
-                session.Insert(new _Set {Key = "set-1", Value = "1"});
-                session.Insert(new _Set {Key = "set-2", Value = "1"});
-
-
-                Commit(session, x => x.RemoveSet("set-1"));
-                // Act
-
-                var record = session.Query<_Set>().Single();
-                //Assert
-                Assert.Equal("set-2", record.Key);
+                x.InsertToList("my-key", "my-value");
+                x.RemoveFromList("different-key", "my-value");
             });
-        }
+            //Act
 
-        [Fact]
-        public void RemoveSet_ThrowsAnException_WhenKeyIsNull()
+            var recordCount = dbContext.Lists.Count();
+            //Assert
+            Assert.Equal(1, recordCount);
+        });
+    }
+
+    [Fact]
+    public async Task RemoveFromList_RemovesAllRecords_WithGivenKeyAndValue()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
+            await Task.CompletedTask;
+            //Arrange
+            Commit(dbContext, x =>
             {
-                //Assert
-
-                Assert.Throws<ArgumentNullException>(
-                    () => Commit(session, x => x.RemoveSet(null)));
+                x.InsertToList("my-key", "my-value");
+                x.InsertToList("my-key", "my-value");
+                x.RemoveFromList("my-key", "my-value");
             });
-        }
+            //Act
 
-        [Fact]
-        public void SetJobState_AppendsAStateAndSetItToTheJob()
+            //Assert
+            Assert.Empty(dbContext.Lists);
+        });
+    }
+
+    [Fact]
+    public async Task RemoveFromSet_DoesNotRemoveRecord_WithSameKey_AndDifferentValue()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
+            await Task.CompletedTask;
+            //Arrange
+            Commit(dbContext, x =>
             {
-                // Arrange
-                var insertTwoResult = InsertTwoJobs(session);
-
-                var state = new Mock<IState>();
-                const string expected = "State";
-                state.Setup(x => x.Name).Returns(expected);
-                const string reason = "Reason";
-                state.Setup(x => x.Reason).Returns(reason);
-                state.Setup(x => x.SerializeData())
-                    .Returns(new Dictionary<string, string> {{"Name", "Value"}});
-
-                Commit(session, x => x.SetJobState(insertTwoResult.JobId1, state.Object));
-                // Act
-
-                var job = GetTestJob(session, insertTwoResult.JobId1);
-                //Assert
-                Assert.Equal(expected, job.StateName);
-
-
-                var anotherJob = GetTestJob(session, insertTwoResult.JobId2);
-                Assert.Null(anotherJob.StateName);
-
-
-                var jobState = session.Query<_JobState>().Single();
-                Assert.Equal(insertTwoResult.JobId1, jobState.Job.Id.ToString());
-                Assert.Equal(expected, jobState.Name);
-                Assert.Equal(reason, jobState.Reason);
-                Assert.InRange(connection.Storage.UtcNow.Subtract(jobState.CreatedAt).TotalSeconds, -3, 10);
-                Assert.Equal("{\"Name\":\"Value\"}", jobState.Data);
+                x.AddToSet("my-key", "my-value");
+                x.RemoveFromSet("my-key", "different-value");
             });
-        }
+            //Act
 
-        [Fact]
-        public void SetRangeInHash_MergesAllRecords()
+            //Assert
+            Assert.Single(dbContext.Sets);
+        });
+    }
+
+    [Fact]
+    public async Task RemoveFromSet_DoesNotRemoveRecord_WithSameValue_AndDifferentKey()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
+            await Task.CompletedTask;
+            //Arrange
+            Commit(dbContext, x =>
             {
-                // Arrange
-                Commit(session, x => x.SetRangeInHash("some-hash", new Dictionary<string, string>
-                {
-                    {"Key1", "Value1"},
-                    {"Key2", "Value2"}
-                }));
-                // Act
-
-                //Assert
-                var result = session.Query<_Hash>()
-                    .Where(i => i.Key == "some-hash")
-                    .ToDictionary(x => x.Field, x => x.Value);
-
-                Assert.Equal("Value1", result["Key1"]);
-                Assert.Equal("Value2", result["Key2"]);
+                x.AddToSet("my-key", "my-value");
+                x.RemoveFromSet("different-key", "my-value");
             });
-        }
+            //Act
 
-        [Fact]
-        public void SetRangeInHash_ThrowsAnException_WhenKeyIsNull()
+            //Assert
+            Assert.Single(dbContext.Sets);
+        });
+    }
+
+    [Fact]
+    public async Task RemoveFromSet_RemovesARecord_WithGivenKeyAndValue()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
+            await Task.CompletedTask;
+            //Arrange
+            Commit(dbContext, x =>
             {
-                var exception = Assert.Throws<ArgumentNullException>(
-                    () => Commit(session, x => x.SetRangeInHash(null, new Dictionary<string, string>())));
-                //Assert
-
-                Assert.Equal("key", exception.ParamName);
+                x.AddToSet("my-key", "my-value");
+                x.RemoveFromSet("my-key", "my-value");
             });
-        }
+            //Act
 
-        [Fact]
-        public void SetRangeInHash_ThrowsAnException_WhenKeyValuePairsArgumentIsNull()
+            //Assert
+            Assert.Empty(dbContext.Sets);
+        });
+    }
+
+    [Fact]
+    public async Task RemoveHash_RemovesAllHashRecords()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
+            await Task.CompletedTask;
+            // Arrange
+            Commit(dbContext, x => x.SetRangeInHash("some-hash", new Dictionary<string, string>
             {
-                var exception = Assert.Throws<ArgumentNullException>(
-                    () => Commit(session, x => x.SetRangeInHash("some-hash", null)));
-                //Assert
-                Assert.Equal("keyValuePairs", exception.ParamName);
-            });
-        }
+                { "Key1", "Value1" },
+                { "Key2", "Value2" }
+            }));
 
-        [Fact]
-        public void TrimList_RemovesAllRecords_IfStartFromGreaterThanEndingAt()
+            // Act
+            Commit(dbContext, x => x.RemoveHash("some-hash"));
+
+            // Assert
+            Assert.Empty(dbContext.Hashes);
+        });
+    }
+
+    [Fact]
+    public async Task RemoveHash_ThrowsAnException_WhenKeyIsNull()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                // Arrange
-                Commit(session, x =>
-                {
-                    x.InsertToList("my-key", "0");
-                    x.TrimList("my-key", 1, 0);
-                });
-                // Act
+            await Task.CompletedTask;
+            //Assert
+            Assert.Throws<ArgumentNullException>(
+                () => Commit(dbContext, x => x.RemoveHash(null)));
+        });
+    }
 
-                var recordCount = session.Query<_List>().Count();
-                //Assert
-                Assert.Equal(0, recordCount);
-            });
-        }
-
-        [Fact]
-        public void TrimList_RemovesAllRecords_WhenStartingFromValue_GreaterThanMaxElementIndex()
+    [Fact]
+    public async Task RemoveSet_RemovesASet_WithAGivenKey()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                // Arrange
-                Commit(session, x =>
-                {
-                    x.InsertToList("my-key", "0");
-                    x.TrimList("my-key", 1, 100);
-                });
-                // Act
+            // Arrange
+            dbContext.Add(new _Set { Key = "set-1", Value = "1" });
+            dbContext.Add(new _Set { Key = "set-2", Value = "1" });
+            await dbContext.SaveChangesAsync();
 
-                var recordCount = session.Query<_List>().Count();
-                //Assert
-                Assert.Equal(0, recordCount);
-            });
-        }
 
-        [Fact]
-        public void TrimList_RemovesRecords_OnlyOfAGivenKey()
+            Commit(dbContext, x => x.RemoveSet("set-1"));
+            // Act
+
+            var record = dbContext.Sets.Single();
+            //Assert
+            Assert.Equal("set-2", record.Key);
+        });
+    }
+
+    [Fact]
+    public async Task RemoveSet_ThrowsAnException_WhenKeyIsNull()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                // Arrange
+            await Task.CompletedTask;
+            //Assert
 
-                Commit(session, x =>
-                {
-                    x.InsertToList("my-key", "0");
-                    x.TrimList("another-key", 1, 0);
-                });
-                // Act
+            Assert.Throws<ArgumentNullException>(
+                () => Commit(dbContext, x => x.RemoveSet(null)));
+        });
+    }
 
-
-                var recordCount = session.Query<_List>().Count();
-                //Assert
-                Assert.Equal(1, recordCount);
-            });
-        }
-
-        [Fact]
-        public void TrimList_RemovesRecordsToEnd_IfKeepAndingAt_GreaterThanMaxElementIndex()
+    [Fact]
+    public async Task SetJobState_AppendsAStateAndSetItToTheJob()
+    {
+        await UseJobStorageConnectionWithDbContext(async (dbContext, connection) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
-            {
-                // Arrange
+            // Arrange
+            var insertTwoResult = await InsertTwoJobs(dbContext);
 
-                Commit(session, x =>
-                {
-                    x.InsertToList("my-key", "0");
-                    x.InsertToList("my-key", "1");
-                    x.InsertToList("my-key", "2");
-                    x.TrimList("my-key", 1, 100);
-                });
-                // Act
+            var state = new Mock<IState>();
+            const string expected = "State";
+            state.Setup(x => x.Name).Returns(expected);
+            const string reason = "Reason";
+            state.Setup(x => x.Reason).Returns(reason);
+            state.Setup(x => x.SerializeData())
+                .Returns(new Dictionary<string, string> { { "Name", "Value" } });
+
+            Commit(dbContext, x => x.SetJobState(insertTwoResult.JobId1, state.Object));
+            // Act
+            dbContext.ChangeTracker.Clear();
+            var job = await GetTestJob(dbContext, insertTwoResult.JobId1);
+            //Assert
+            Assert.Equal(expected, job.StateName);
 
 
-                var recordCount = session.Query<_List>().Count();
-                //Assert
-                Assert.Equal(2, recordCount);
-            });
-        }
+            var anotherJob = await GetTestJob(dbContext, insertTwoResult.JobId2);
+            Assert.Null(anotherJob.StateName);
 
-        [Fact]
-        public void TrimList_TrimsAList_ToASpecifiedRange()
+
+            var jobState = dbContext.JobStates.Single();
+            Assert.Equal(insertTwoResult.JobId1, jobState.Job.Id);
+            Assert.Equal(expected, jobState.Name);
+            Assert.Equal(reason, jobState.Reason);
+            Assert.InRange(connection.Storage.UtcNow.Subtract(jobState.CreatedAt.FromEpochDate()).TotalSeconds, -3, 10);
+            Assert.Equal("{\"Name\":\"Value\"}", jobState.Data);
+        });
+    }
+
+    [Fact]
+    public async Task SetRangeInHash_MergesAllRecords()
+    {
+        await UseDbContext(async (dbContext) =>
         {
-            UseJobStorageConnectionWithSession((session, connection) =>
+            await Task.CompletedTask;
+            // Arrange
+            Commit(dbContext, x => x.SetRangeInHash("some-hash", new Dictionary<string, string>
             {
-                // Arrange
+                { "Key1", "Value1" },
+                { "Key2", "Value2" }
+            }));
+            // Act
 
-                Commit(session, x =>
-                {
-                    x.InsertToList("my-key", "0");
-                    x.InsertToList("my-key", "1");
-                    x.InsertToList("my-key", "2");
-                    x.InsertToList("my-key", "3");
-                    x.TrimList("my-key", 1, 2);
-                });
-                // Act
+            //Assert
+            var result = dbContext.Hashes
+                .Where(i => i.Key == "some-hash")
+                .ToDictionary(x => x.Name, x => x.Value);
 
+            Assert.Equal("Value1", result["Key1"]);
+            Assert.Equal("Value2", result["Key2"]);
+        });
+    }
 
-                var records = session.Query<_List>().ToArray();
-                //Assert
-                Assert.Equal(2, records.Length);
-                Assert.Equal("1", records[0].Value);
-                Assert.Equal("2", records[1].Value);
+    [Fact]
+    public async Task SetRangeInHash_ThrowsAnException_WhenKeyIsNull()
+    {
+        await UseDbContext(async (dbContext) =>
+        {
+            await Task.CompletedTask;
+            var exception = Assert.Throws<ArgumentNullException>(
+                () => Commit(dbContext, x => x.SetRangeInHash(null, new Dictionary<string, string>())));
+            //Assert
+
+            Assert.Equal("key", exception.ParamName);
+        });
+    }
+
+    [Fact]
+    public async Task SetRangeInHash_ThrowsAnException_WhenKeyValuePairsArgumentIsNull()
+    {
+        await UseDbContext(async (dbContext) =>
+        {
+            await Task.CompletedTask;
+            var exception = Assert.Throws<ArgumentNullException>(
+                () => Commit(dbContext, x => x.SetRangeInHash("some-hash", null)));
+            //Assert
+            Assert.Equal("keyValuePairs", exception.ParamName);
+        });
+    }
+
+    [Fact]
+    public async Task TrimList_RemovesAllRecords_IfStartFromGreaterThanEndingAt()
+    {
+        await UseDbContext(async (dbContext) =>
+        {
+            await Task.CompletedTask;
+            // Arrange
+            Commit(dbContext, x =>
+            {
+                x.InsertToList("my-key", "0");
+                x.TrimList("my-key", 1, 0);
             });
-        }
+            // Act
+
+           
+            
+            //Assert
+            Assert.Empty(dbContext.Lists);
+            
+        });
+    }
+
+    [Fact]
+    public async Task TrimList_RemovesAllRecords_WhenStartingFromValue_GreaterThanMaxElementIndex()
+    {
+        await UseDbContext(async (dbContext) =>
+        {
+            await Task.CompletedTask;
+            // Arrange
+            Commit(dbContext, x =>
+            {
+                x.InsertToList("my-key", "0");
+                x.TrimList("my-key", 1, 100);
+            });
+            // Act
+             
+            //Assert
+            Assert.Empty(dbContext.Lists);
+        });
+    }
+
+    [Fact]
+    public async Task TrimList_RemovesRecords_OnlyOfAGivenKey()
+    {
+        await UseDbContext(async (dbContext) =>
+        {
+            await Task.CompletedTask;
+            // Arrange
+
+            Commit(dbContext, x =>
+            {
+                x.InsertToList("my-key", "0");
+                x.TrimList("another-key", 1, 0);
+            });
+            // Act
+             
+            //Assert
+            Assert.Single(dbContext.Lists);
+        });
+    }
+
+    [Fact]
+    public async Task TrimList_RemovesRecordsToEnd_IfKeepAndingAt_GreaterThanMaxElementIndex()
+    {
+        await UseDbContext(async (dbContext) =>
+        {
+            await Task.CompletedTask;
+            // Arrange
+
+            Commit(dbContext, x =>
+            {
+                x.InsertToList("my-key", "0");
+                x.InsertToList("my-key", "1");
+                x.InsertToList("my-key", "2");
+                x.TrimList("my-key", 1, 100);
+            });
+            // Act
+
+
+            var recordCount = dbContext.Lists.Count();
+            //Assert
+            Assert.Equal(2, recordCount);
+        });
+    }
+
+    [Fact]
+    public async Task TrimList_TrimsAList_ToASpecifiedRange()
+    {
+        await UseDbContext(async (dbContext) =>
+        {
+            await Task.CompletedTask;
+            // Arrange
+
+            Commit(dbContext, x =>
+            {
+                x.InsertToList("my-key", "0");
+                x.InsertToList("my-key", "1");
+                x.InsertToList("my-key", "2");
+                x.InsertToList("my-key", "3");
+                x.TrimList("my-key", 1, 2);
+            });
+            // Act
+            dbContext.ChangeTracker.Clear();
+
+            var records = dbContext.Lists.OrderBy(i => i.Id).ToArray();
+            //Assert
+            Assert.Equal(2, records.Length);
+            Assert.Equal("1", records[0].Value);
+            Assert.Equal("2", records[1].Value);
+        });
+    }
+
+
+    private class InsertTwoJobsResult
+    {
+        public string? JobId1 { get; set; }
+        public string? JobId2 { get; set; }
     }
 }

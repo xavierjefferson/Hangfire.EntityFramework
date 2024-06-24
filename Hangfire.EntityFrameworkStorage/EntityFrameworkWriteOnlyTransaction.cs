@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using Hangfire.Common;
 using Hangfire.EntityFrameworkStorage.Entities;
+using Hangfire.EntityFrameworkStorage.Extensions;
+using Hangfire.EntityFrameworkStorage.Interfaces;
 using Hangfire.Logging;
 using Hangfire.States;
 using Hangfire.Storage;
@@ -24,30 +26,30 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
     }
 
-    private void SetExpireAt<T>(string key, DateTime? expire, HangfireContext wrapper)
-        where T : HFEntity, IExpirableWithKey
+    private void SetExpireAt<T>(string key, DateTime? expire, HangfireContext dbContext)
+        where T : EntityBase, IExpirableWithKey
     {
-        var tmp = wrapper.Set<T>().FirstOrDefault(i => i.Key == key);
+        var tmp = dbContext.Set<T>().FirstOrDefault(i => i.Key == key);
         if (tmp != null)
         {
-            tmp.ExpireAt = expire;
-            wrapper.Update(tmp);
-            wrapper.SaveChanges();
+            tmp.ExpireAt = expire.ToEpochDate();
+            dbContext.Update(tmp);
+            dbContext.SaveChanges();
         }
     }
 
-    private void DeleteByKey<T>(string key, HangfireContext wrapper) where T : class, IExpirableWithKey
+    private void DeleteByKey<T>(string key, HangfireContext dbContext) where T : EntityBase, IExpirableWithKey
     {
-        wrapper.RemoveRange(wrapper.Set<T>().Where(i => i.Key == key));
-        wrapper.SaveChanges();
+        dbContext.RemoveRange(dbContext.Set<T>().Where(i => i.Key == key));
+        dbContext.SaveChanges();
         //does nothing
     }
 
-    private void DeleteByKeyValue<T>(string key, string value, HangfireContext wrapper)
+    private void DeleteByKeyValue<T>(string key, string value, HangfireContext dbContext)
         where T : class, IKeyWithStringValue
     {
-        wrapper.RemoveRange(wrapper.Set<T>().Where(i => i.Key == key && i.Value == value));
-        wrapper.SaveChanges();
+        dbContext.RemoveRange(dbContext.Set<T>().Where(i => i.Key == key && i.Value == value));
+        dbContext.SaveChanges();
         //does nothing
     }
 
@@ -57,14 +59,14 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
 
         AcquireJobLock();
 
-        AddCommand(wrapper =>
+        AddCommand(dbContext =>
         {
-            var job = wrapper.Jobs.FirstOrDefault(i => i.Id == jobId);
+            var job = dbContext.Jobs.FirstOrDefault(i => i.Id == jobId);
             if (job != null)
             {
-                job.ExpireAt = _storage.UtcNow.Add(expireIn);
-                wrapper.Update(job);
-                wrapper.SaveChanges();
+                job.ExpireAt = _storage.UtcNow.Add(expireIn).ToEpochDate();
+                dbContext.Update(job);
+                dbContext.SaveChanges();
             }
         });
     }
@@ -75,14 +77,14 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
 
         AcquireJobLock();
 
-        AddCommand(wrapper =>
+        AddCommand(dbContext =>
         {
-            var tmp = wrapper.Jobs.FirstOrDefault(i => i.Id ==jobId);
+            var tmp = dbContext.Jobs.FirstOrDefault(i => i.Id == jobId);
             if (tmp != null)
             {
                 tmp.ExpireAt = null;
-                wrapper.Update(tmp);
-                wrapper.SaveChanges();
+                dbContext.Update(tmp);
+                dbContext.SaveChanges();
             }
         });
     }
@@ -93,9 +95,9 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
 
         AcquireStateLock();
         AcquireJobLock();
-        AddCommand(wrapper =>
+        AddCommand(dbContext =>
         {
-            var job = wrapper.Jobs.SingleOrDefault(i => i.Id == jobId);
+            var job = dbContext.Jobs.SingleOrDefault(i => i.Id == jobId);
             if (job != null)
             {
                 var jobState = new _JobState
@@ -103,18 +105,18 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
                     Job = job,
                     Reason = state.Reason,
                     Name = state.Name,
-                    CreatedAt = _storage.UtcNow,
+                    CreatedAt = _storage.UtcNow.ToEpochDate(),
                     Data = SerializationHelper.Serialize(state.SerializeData())
                 };
-                wrapper.JobStates.Add(jobState);
+                dbContext.JobStates.Add(jobState);
 
                 job.StateData = jobState.Data;
                 job.StateReason = jobState.Reason;
                 job.StateName = jobState.Name;
-                job.LastStateChangedAt = _storage.UtcNow;
+                job.LastStateChangedAt = _storage.UtcNow.ToEpochDate();
 
-                wrapper.Update(job);
-                wrapper.SaveChanges();
+                dbContext.Update(job);
+                dbContext.SaveChanges();
                 //does nothing
             }
         });
@@ -134,7 +136,7 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
                     Job = job,
                     Name = state.Name,
                     Reason = state.Reason,
-                    CreatedAt = _storage.UtcNow,
+                    CreatedAt = _storage.UtcNow.ToEpochDate(),
                     Data = SerializationHelper.Serialize(state.SerializeData())
                 });
 
@@ -174,7 +176,7 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
             {
                 Key = key,
                 Value = value,
-                ExpireAt = expireIn == null ? null : _storage.UtcNow.Add(expireIn.Value)
+                ExpireAt = expireIn == null ? null : _storage.UtcNow.Add(expireIn.Value).ToEpochDate()
             });
             dbContext.SaveChanges();
         });
@@ -200,9 +202,9 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
         Logger.DebugFormat("AddToSet key={0} value={1}", key, value);
 
         AcquireSetLock();
-        AddCommand(wrapper =>
+        AddCommand(dbContext =>
         {
-            wrapper.UpsertEntity<_Set>(i => i.Key == key && i.Value == value, i => i.Score = score, i =>
+            dbContext.UpsertEntity<_Set>(i => i.Key == key && i.Value == value, i => i.Score = score, i =>
             {
                 i.Key = key;
                 i.Value = value;
@@ -220,11 +222,8 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
         AcquireSetLock();
         AddCommand(dbContext =>
         {
-            foreach (var i in items)
-            {
-                dbContext.Add(new _Set { Key = key, Value = i, Score = 0 });
-                dbContext.SaveChanges();
-            }
+            foreach (var i in items) dbContext.Add(new _Set { Key = key, Value = i, Score = 0 });
+            dbContext.SaveChanges();
         });
     }
 
@@ -283,16 +282,16 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
         Logger.DebugFormat("TrimList key={0} from={1} to={2}", key, keepStartingFrom, keepEndingAt);
 
         AcquireListLock();
-        AddCommand(wrapper =>
+        AddCommand(dbContext =>
         {
-            var idList = wrapper.Lists
+            var idList = dbContext.Lists
                 .OrderBy(i => i.Id)
                 .Where(i => i.Key == key).ToList()
                 .Select((i, j) => new { index = j, id = i.Id }).ToList();
             var before = idList.Where(i => i.index < keepStartingFrom || i.index > keepEndingAt)
                 .Select(i => i.id)
                 .ToList();
-            wrapper.DeleteById<_List, int>(before);
+            dbContext.DeleteById<_List, int>(before);
         });
     }
 
@@ -344,14 +343,14 @@ public class EntityFrameworkWriteOnlyTransaction : JobStorageTransaction
         if (keyValuePairs == null) throw new ArgumentNullException(nameof(keyValuePairs));
 
         AcquireHashLock();
-        AddCommand(wrapper =>
+        AddCommand(dbContext =>
         {
             foreach (var keyValuePair in keyValuePairs)
-                wrapper.UpsertEntity<_Hash>(i => i.Key == key && i.Field == keyValuePair.Key,
+                dbContext.UpsertEntity<_Hash>(i => i.Key == key && i.Name == keyValuePair.Key,
                     i => i.Value = keyValuePair.Value,
                     i =>
                     {
-                        i.Field = keyValuePair.Key;
+                        i.Name = keyValuePair.Key;
                         i.Key = key;
                     }
                 );

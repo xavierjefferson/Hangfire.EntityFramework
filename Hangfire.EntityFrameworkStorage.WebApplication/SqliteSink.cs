@@ -3,24 +3,23 @@ using Hangfire.EntityFrameworkStorage.SampleStuff;
 using Serilog.Core;
 using Serilog.Events;
 
-namespace Hangfire.EntityFrameworkStorage.WebApplication
+namespace Hangfire.EntityFrameworkStorage.WebApplication;
+
+public class SqliteSink : ILogEventSink
+
 {
-    public class SqliteSink : ILogEventSink
+    private readonly ILogPersistenceService _logPersistenceService;
 
+    public SqliteSink(
+        ILogPersistenceService logPersistenceService)
     {
-        private readonly ILogPersistenceService _logPersistenceService;
+        _logPersistenceService = logPersistenceService;
+    }
 
-        public SqliteSink(
-            ILogPersistenceService logPersistenceService)
-        {
-            _logPersistenceService = logPersistenceService;
-        }
-
-        public void Emit(LogEvent logEvent)
-        {
-            if (logEvent == null)
-                throw new ArgumentNullException(nameof(logEvent));
-            _logPersistenceService.Insert(logEvent);
-        }
+    public void Emit(LogEvent logEvent)
+    {
+        if (logEvent == null)
+            throw new ArgumentNullException(nameof(logEvent));
+        _logPersistenceService.Insert(logEvent);
     }
 }

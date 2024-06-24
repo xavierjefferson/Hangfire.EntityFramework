@@ -11,21 +11,23 @@ import { IHttpConnectionOptions } from "./IHttpConnectionOptions";
 // Version token that will be replaced by the prepack command
 /** The version of the SignalR client. */
 
-export const VERSION: string = "0.0.0-DEV_BUILD";
+export const VERSION = "0.0.0-DEV_BUILD";
+
 /** @private */
 export class Arg {
-    public static isRequired(val: any, name: string): void {
+    static isRequired(val: any, name: string): void {
         if (val === null || val === undefined) {
             throw new Error(`The '${name}' argument is required.`);
         }
     }
-    public static isNotEmpty(val: string, name: string): void {
+
+    static isNotEmpty(val: string, name: string): void {
         if (!val || val.match(/^\s*$/)) {
             throw new Error(`The '${name}' argument should not be empty.`);
         }
     }
 
-    public static isIn(val: any, values: any, name: string): void {
+    static isIn(val: any, values: any, name: string): void {
         // TypeScript enums have keys for **both** the name and the value of each enum member on the type itself.
         if (!(val in values)) {
             throw new Error(`Unknown ${name} value: ${val}.`);
@@ -36,12 +38,12 @@ export class Arg {
 /** @private */
 export class Platform {
     // react-native has a window but no document so we should check both
-    public static get isBrowser(): boolean {
+    static get isBrowser(): boolean {
         return typeof window === "object" && typeof window.document === "object";
     }
 
     // WebWorkers don't have a window object so the isBrowser check would fail
-    public static get isWebWorker(): boolean {
+    static get isWebWorker(): boolean {
         return typeof self === "object" && "importScripts" in self;
     }
 
@@ -52,7 +54,7 @@ export class Platform {
 
     // Node apps shouldn't have a window object, but WebWorkers don't either
     // so we need to check for both WebWorker and window
-    public static get isNode(): boolean {
+    static get isNode(): boolean {
         return !this.isBrowser && !this.isWebWorker && !this.isReactNative;
     }
 }
@@ -92,16 +94,22 @@ export function formatArrayBuffer(data: ArrayBuffer): string {
 // Also in signalr-protocol-msgpack/Utils.ts
 /** @private */
 export function isArrayBuffer(val: any): val is ArrayBuffer {
-    return val && typeof ArrayBuffer !== "undefined" &&
+    return val &&
+        typeof ArrayBuffer !== "undefined" &&
         (val instanceof ArrayBuffer ||
             // Sometimes we get an ArrayBuffer that doesn't satisfy instanceof
             (val.constructor && val.constructor.name === "ArrayBuffer"));
 }
 
 /** @private */
-export async function sendMessage(logger: ILogger, transportName: string, httpClient: HttpClient, url: string, accessTokenFactory: (() => string | Promise<string>) | undefined,
-                                  content: string | ArrayBuffer, options: IHttpConnectionOptions): Promise<void> {
-    let headers: {[k: string]: string} = {};
+export async function sendMessage(logger: ILogger,
+    transportName: string,
+    httpClient: HttpClient,
+    url: string,
+    accessTokenFactory: (() => string | Promise<string>) | undefined,
+    content: string | ArrayBuffer,
+    options: IHttpConnectionOptions): Promise<void> {
+    let headers: { [k: string]: string } = {};
     if (accessTokenFactory) {
         const token = await accessTokenFactory();
         if (token) {
@@ -114,18 +122,21 @@ export async function sendMessage(logger: ILogger, transportName: string, httpCl
     const [name, value] = getUserAgentHeader();
     headers[name] = value;
 
-    logger.log(LogLevel.Trace, `(${transportName} transport) sending data. ${getDataDetail(content, options.logMessageContent!)}.`);
+    logger.log(LogLevel.Trace,
+        `(${transportName} transport) sending data. ${getDataDetail(content, options.logMessageContent!)}.`);
 
     const responseType = isArrayBuffer(content) ? "arraybuffer" : "text";
-    const response = await httpClient.post(url, {
-        content,
-        headers: { ...headers, ...options.headers},
-        responseType,
-        timeout: options.timeout,
-        withCredentials: options.withCredentials,
-    });
+    const response = await httpClient.post(url,
+        {
+            content,
+            headers: { ...headers, ...options.headers },
+            responseType,
+            timeout: options.timeout,
+            withCredentials: options.withCredentials,
+        });
 
-    logger.log(LogLevel.Trace, `(${transportName} transport) request complete. Response status: ${response.statusCode}.`);
+    logger.log(LogLevel.Trace,
+        `(${transportName} transport) request complete. Response status: ${response.statusCode}.`);
 }
 
 /** @private */
@@ -155,14 +166,14 @@ export class SubjectSubscription<T> implements ISubscription<T> {
         this._observer = observer;
     }
 
-    public dispose(): void {
-        const index: number = this._subject.observers.indexOf(this._observer);
+    dispose(): void {
+        const index = this._subject.observers.indexOf(this._observer);
         if (index > -1) {
             this._subject.observers.splice(index, 1);
         }
 
         if (this._subject.observers.length === 0 && this._subject.cancelCallback) {
-            this._subject.cancelCallback().catch((_) => { });
+            this._subject.cancelCallback().catch((_) => {});
         }
     }
 }
@@ -172,7 +183,7 @@ export class ConsoleLogger implements ILogger {
     private readonly _minLevel: LogLevel;
 
     // Public for testing purposes.
-    public out: {
+    out: {
         error(message: any): void,
         warn(message: any): void,
         info(message: any): void,
@@ -184,24 +195,24 @@ export class ConsoleLogger implements ILogger {
         this.out = console;
     }
 
-    public log(logLevel: LogLevel, message: string): void {
+    log(logLevel: LogLevel, message: string): void {
         if (logLevel >= this._minLevel) {
             const msg = `[${new Date().toISOString()}] ${LogLevel[logLevel]}: ${message}`;
             switch (logLevel) {
-                case LogLevel.Critical:
-                case LogLevel.Error:
-                    this.out.error(msg);
-                    break;
-                case LogLevel.Warning:
-                    this.out.warn(msg);
-                    break;
-                case LogLevel.Information:
-                    this.out.info(msg);
-                    break;
-                default:
-                    // console.debug only goes to attached debuggers in Node, so we use console.log for Trace and Debug
-                    this.out.log(msg);
-                    break;
+            case LogLevel.Critical:
+            case LogLevel.Error:
+                this.out.error(msg);
+                break;
+            case LogLevel.Warning:
+                this.out.warn(msg);
+                break;
+            case LogLevel.Information:
+                this.out.info(msg);
+                break;
+            default:
+                // console.debug only goes to attached debuggers in Node, so we use console.log for Trace and Debug
+                this.out.log(msg);
+                break;
             }
         }
     }
@@ -213,13 +224,14 @@ export function getUserAgentHeader(): [string, string] {
     if (Platform.isNode) {
         userAgentHeaderName = "User-Agent";
     }
-    return [ userAgentHeaderName, constructUserAgent(VERSION, getOsName(), getRuntime(), getRuntimeVersion()) ];
+    return [userAgentHeaderName, constructUserAgent(VERSION, getOsName(), getRuntime(), getRuntimeVersion())];
 }
 
 /** @private */
-export function constructUserAgent(version: string, os: string, runtime: string, runtimeVersion: string | undefined): string {
+export function constructUserAgent(version: string, os: string, runtime: string, runtimeVersion: string | undefined):
+    string {
     // Microsoft SignalR/[Version] ([Detailed Version]; [Operating System]; [Runtime]; [Runtime Version])
-    let userAgent: string = "Microsoft SignalR/";
+    let userAgent = "Microsoft SignalR/";
 
     const majorAndMinor = version.split(".");
     userAgent += `${majorAndMinor[0]}.${majorAndMinor[1]}`;
@@ -244,17 +256,18 @@ export function constructUserAgent(version: string, os: string, runtime: string,
 }
 
 // eslint-disable-next-line spaced-comment
-/*#__PURE__*/ function getOsName(): string {
+/*#__PURE__*/
+function getOsName(): string {
     if (Platform.isNode) {
         switch (process.platform) {
-            case "win32":
-                return "Windows NT";
-            case "darwin":
-                return "macOS";
-            case "linux":
-                return "Linux";
-            default:
-                return process.platform;
+        case "win32":
+            return "Windows NT";
+        case "darwin":
+            return "macOS";
+        case "linux":
+            return "Linux";
+        default:
+            return process.platform;
         }
     } else {
         return "";
@@ -262,7 +275,8 @@ export function constructUserAgent(version: string, os: string, runtime: string,
 }
 
 // eslint-disable-next-line spaced-comment
-/*#__PURE__*/ function getRuntimeVersion(): string | undefined {
+/*#__PURE__*/
+function getRuntimeVersion(): string | undefined {
     if (Platform.isNode) {
         return process.versions.node;
     }

@@ -1,4 +1,5 @@
-﻿using Hangfire.EntityFrameworkStorage.Maps;
+﻿using Hangfire.EntityFrameworkStorage.Interfaces;
+using Hangfire.EntityFrameworkStorage.Maps;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -25,13 +26,13 @@ public class HangfireContext : DbContext
     public DbSet<_Server> Servers { get; set; }
     public DbSet<_Set> Sets { get; set; }
 
-    private void MapExpireAt<T>(EntityTypeBuilder<T> entity) where T : HFEntity, IExpirable
+    private void MapExpireAt<T>(EntityTypeBuilder<T> entity) where T : EntityBase, IExpirable
     {
         entity.Property(i => i.ExpireAt).IsRequired(false);
         entity.HasIndex(i => i.ExpireAt);
     }
 
-    private void MapCreatedAt<T>(EntityTypeBuilder<T> entity) where T : HFEntity, ICreatedAt
+    private void MapCreatedAt<T>(EntityTypeBuilder<T> entity) where T : EntityBase, ICreatedAt
     {
         entity.Property(i => i.CreatedAt).IsRequired();
         entity.HasIndex(i => i.CreatedAt);
@@ -55,7 +56,7 @@ public class HangfireContext : DbContext
             entity.HasKey(i => i.Id);
             entity.Property(i => i.Resource).HasMaxLength(100).IsRequired();
             entity.HasIndex(i => i.Resource).IsUnique();
-            entity.Property(i => i.ExpireAtAsLong).IsRequired();
+            entity.Property(i => i.ExpireAt).IsRequired();
             entity.Property(i => i.CreatedAt).IsRequired();
         });
         modelBuilder.Entity<_Dual>(entity =>
@@ -68,10 +69,10 @@ public class HangfireContext : DbContext
             entity.ToTable($"{_prefix}Hash");
             entity.HasKey(i => i.Id);
             entity.Property(i => i.Key).HasMaxLength(100);
-            entity.Property(i => i.Field).IsRequired().HasMaxLength(40);
+            entity.Property(i => i.Name).IsRequired().HasMaxLength(40);
             entity.Property(i => i.Value).IsRequired(false).HasMaxLength(Constants.VarcharMaxLength);
             MapExpireAt(entity);
-            entity.HasIndex(i => new { i.Field, i.Key }).IsUnique();
+            entity.HasIndex(i => new { i.Name, i.Key }).IsUnique();
         });
         modelBuilder.Entity<_Job>(entity =>
         {

@@ -4,10 +4,12 @@ using System.Linq;
 using Hangfire.Annotations;
 using Hangfire.Common;
 using Hangfire.EntityFrameworkStorage.Entities;
+using Hangfire.EntityFrameworkStorage.Extensions;
 using Hangfire.EntityFrameworkStorage.JobQueue;
 using Hangfire.States;
 using Hangfire.Storage;
 using Hangfire.Storage.Monitoring;
+using Microsoft.EntityFrameworkCore;
 
 namespace Hangfire.EntityFrameworkStorage.Monitoring;
 
@@ -52,17 +54,17 @@ public class EntityFrameworkMonitoringApi : IMonitoringApi
 
     public IList<ServerDto> Servers()
     {
-        Func<HangfireContext, IList<ServerDto>> action = wrapper =>
+        Func<HangfireContext, IList<ServerDto>> action = dbContext =>
         {
             var result = new List<ServerDto>();
 
-            foreach (var server in wrapper.Servers)
+            foreach (var server in dbContext.Servers)
             {
                 var data = SerializationHelper.Deserialize<ServerData>(server.Data);
                 result.Add(new ServerDto
                 {
                     Name = server.Id,
-                    Heartbeat = server.LastHeartbeat,
+                    Heartbeat = server.LastHeartbeat.FromEpochDate(),
                     Queues = data.Queues,
                     StartedAt = data.StartedAt.HasValue ? data.StartedAt.Value : DateTime.MinValue,
                     WorkersCount = data.WorkerCount
@@ -76,13 +78,10 @@ public class EntityFrameworkMonitoringApi : IMonitoringApi
 
     public JobDetailsDto JobDetails(string jobId)
     {
-        //wrap in transaction so we only read serialized data
-        using (_storage.CreateTransaction())
-
-            //this will not use a stateless dbContext because it has to use the references between job and parameters.
-        using (var dbContext = _storage.GetDbContext())
+        return _storage.UseDbContextInTransaction(dbContext =>
         {
-            var job = dbContext.Jobs.SingleOrDefault(i => i.Id == jobId);
+            var job = dbContext.Jobs.Include(i => i.Parameters).Include(i => i.History)
+                .SingleOrDefault(i => i.Id == jobId);
             if (job == null) return null;
 
             var parameters = job.Parameters.ToDictionary(x => x.Name, x => x.Value);
@@ -91,7 +90,7 @@ public class EntityFrameworkMonitoringApi : IMonitoringApi
                     .Select(jobState => new StateHistoryDto
                     {
                         StateName = jobState.Name,
-                        CreatedAt = jobState.CreatedAt,
+                        CreatedAt = jobState.CreatedAt.FromEpochDate(),
                         Reason = jobState.Reason,
                         Data = new Dictionary<string, string>(
                             SerializationHelper.Deserialize<Dictionary<string, string>>(jobState.Data),
@@ -101,21 +100,21 @@ public class EntityFrameworkMonitoringApi : IMonitoringApi
 
             return new JobDetailsDto
             {
-                CreatedAt = job.CreatedAt,
-                ExpireAt = job.ExpireAt,
+                CreatedAt = job.CreatedAt.FromEpochDate(),
+                ExpireAt = job.ExpireAt.FromEpochDate(),
                 Job = DeserializeJob(job.InvocationData, job.Arguments),
                 History = history,
                 Properties = parameters
             };
-        }
+        });
     }
 
     public StatisticsDto GetStatistics()
     {
         var statistics =
-            _storage.UseDbContextInTransaction(wrapper =>
+            _storage.UseDbContextInTransaction(dbContext =>
             {
-                var statesDictionary = wrapper.Jobs
+                var statesDictionary = dbContext.Jobs
                     .Where(i => i.StateName != null && i.StateName.Length > 0)
                     .GroupBy(i => i.StateName)
                     .Select(i => new { i.Key, Count = i.Count() })
@@ -130,9 +129,9 @@ public class EntityFrameworkMonitoringApi : IMonitoringApi
 
                 long CountStats(string key)
                 {
-                    var l1 = wrapper.AggregatedCounters.Where(i => i.Key == key).Select(i => i.Value)
+                    var l1 = dbContext.AggregatedCounters.Where(i => i.Key == key).Select(i => i.Value)
                         .ToList();
-                    var l2 = wrapper.Counters.Where(i => i.Key == key).Select(i => i.Value).ToList();
+                    var l2 = dbContext.Counters.Where(i => i.Key == key).Select(i => i.Value).ToList();
                     return l1.Sum() + l2.Sum();
                 }
 
@@ -142,10 +141,10 @@ public class EntityFrameworkMonitoringApi : IMonitoringApi
                     Failed = GetJobStatusCount(FailedState.StateName),
                     Processing = GetJobStatusCount(ProcessingState.StateName),
                     Scheduled = GetJobStatusCount(ScheduledState.StateName),
-                    Servers = wrapper.Servers.Count(),
+                    Servers = dbContext.Servers.Count(),
                     Succeeded = CountStats("stats:succeeded"),
                     Deleted = CountStats("stats:deleted"),
-                    Recurring = wrapper.Sets.Count(i => i.Key == "recurring-jobs")
+                    Recurring = dbContext.Sets.Count(i => i.Key == "recurring-jobs")
                 };
             });
 
@@ -161,7 +160,7 @@ public class EntityFrameworkMonitoringApi : IMonitoringApi
         var queueApi = GetQueueApi(queue);
         var enqueuedJobIds = queueApi.GetEnqueuedJobIds(queue, from, perPage);
 
-        return _storage.UseDbContextInTransaction(wrapper => EnqueuedJobs(wrapper, enqueuedJobIds));
+        return _storage.UseDbContextInTransaction(dbContext => EnqueuedJobs(dbContext, enqueuedJobIds));
     }
 
     public JobList<FetchedJobDto> FetchedJobs(string queue, int from, int perPage)
@@ -239,8 +238,8 @@ public class EntityFrameworkMonitoringApi : IMonitoringApi
 
     public JobList<DeletedJobDto> DeletedJobs(int from, int count)
     {
-        return _storage.UseDbContextInTransaction(wrapper => GetJobs(
-            wrapper,
+        return _storage.UseDbContextInTransaction(dbContext => GetJobs(
+            dbContext,
             from,
             count,
             DeletedState.StateName,
@@ -339,13 +338,13 @@ public class EntityFrameworkMonitoringApi : IMonitoringApi
     }
 
     private JobList<TDto> GetJobs<TDto>(
-        HangfireContext wrapper,
+        HangfireContext dbContext,
         int from,
         int count,
         string stateName,
         Func<_Job, Job, Dictionary<string, string>, TDto> selector)
     {
-        var jobs = wrapper.Jobs
+        var jobs = dbContext.Jobs
             .OrderByDescending(i => i.Id)
             .Where(i => i.StateName == stateName)
             .Skip(from)
@@ -371,7 +370,7 @@ public class EntityFrameworkMonitoringApi : IMonitoringApi
             var dto = selector(job, DeserializeJob(job.InvocationData, job.Arguments), stateData);
 
             result.Add(new KeyValuePair<string, TDto>(
-                job.Id.ToString(), dto));
+                job.Id, dto));
         }
 
         return new JobList<TDto>(result);
@@ -393,7 +392,7 @@ public class EntityFrameworkMonitoringApi : IMonitoringApi
     }
 
     private Dictionary<DateTime, long> GetTimelineStats(
-        HangfireContext wrapper,
+        HangfireContext dbContext,
         string type)
     {
         var endDate = _storage.UtcNow.Date;
@@ -407,13 +406,13 @@ public class EntityFrameworkMonitoringApi : IMonitoringApi
         var keyMaps = dates.ToDictionary(x => string.Format("stats:{0}:{1:yyyy-MM-dd}", type, x),
             x => x);
 
-        return GetTimelineStats(wrapper, keyMaps);
+        return GetTimelineStats(dbContext, keyMaps);
     }
 
-    private Dictionary<DateTime, long> GetTimelineStats(HangfireContext wrapper,
+    private Dictionary<DateTime, long> GetTimelineStats(HangfireContext dbContext,
         IDictionary<string, DateTime> keyMaps)
     {
-        var valuesMap = wrapper.AggregatedCounters
+        var valuesMap = dbContext.AggregatedCounters
             .Where(i => keyMaps.Keys.Contains(i.Key))
             .ToDictionary(x => x.Key, x => x.Value);
 
@@ -432,13 +431,13 @@ public class EntityFrameworkMonitoringApi : IMonitoringApi
     }
 
     private JobList<EnqueuedJobDto> EnqueuedJobs(
-        HangfireContext wrapper,
+        HangfireContext dbContext,
         IEnumerable<string> jobIds)
     {
         var list = jobIds.ToList();
         if (list.Any())
         {
-            var jobs = wrapper.Jobs.Where(i => list.Contains(i.Id, StringComparer.InvariantCultureIgnoreCase)).ToList();
+            var jobs = dbContext.Jobs.Where(i => list.Contains(i.Id)).ToList();
 
             return DeserializeJobs(
                 jobs,
@@ -456,7 +455,7 @@ public class EntityFrameworkMonitoringApi : IMonitoringApi
     }
 
     private JobList<FetchedJobDto> FetchedJobs(
-        HangfireContext wrapper,
+        HangfireContext dbContext,
         IEnumerable<string> jobIds)
     {
         var list = jobIds.ToList();
@@ -464,9 +463,9 @@ public class EntityFrameworkMonitoringApi : IMonitoringApi
         {
             var result = new List<KeyValuePair<string, FetchedJobDto>>();
 
-            foreach (var job in wrapper.Jobs.Where(i => list.Contains(i.Id)))
+            foreach (var job in dbContext.Jobs.Where(i => list.Contains(i.Id)))
                 result.Add(new KeyValuePair<string, FetchedJobDto>(
-                    job.Id.ToString(),
+                    job.Id,
                     new FetchedJobDto
                     {
                         Job = DeserializeJob(job.InvocationData, job.Arguments),

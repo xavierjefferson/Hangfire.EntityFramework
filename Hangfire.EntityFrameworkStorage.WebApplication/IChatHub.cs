@@ -1,6 +1,5 @@
-namespace Hangfire.EntityFrameworkStorage.WebApplication
+namespace Hangfire.EntityFrameworkStorage.WebApplication;
+
+public interface IChatHub : IHub
 {
-    public interface IChatHub : IHub
-    {
-    }
 }

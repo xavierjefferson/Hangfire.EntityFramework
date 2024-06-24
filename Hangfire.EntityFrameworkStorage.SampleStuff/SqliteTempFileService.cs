@@ -5,91 +5,90 @@ using System.Reflection;
 using Microsoft.Extensions.Logging;
 using Serilog;
 
-namespace Hangfire.EntityFrameworkStorage.SampleStuff
+namespace Hangfire.EntityFrameworkStorage.SampleStuff;
+
+public class SqliteTempFileService : IDisposable, ISqliteTempFileService
 {
-    public class SqliteTempFileService : IDisposable, ISqliteTempFileService
+    private static DirectoryInfo _testFolder;
+
+
+    public SqliteTempFileService(ILogger<SqliteTempFileService> logger)
     {
-        private static DirectoryInfo _testFolder;
+        _testFolder = new DirectoryInfo(GetTempPath());
+        _testFolder.Create();
+
+        CreateDatabase();
+    }
 
 
-        public SqliteTempFileService(ILogger<SqliteTempFileService> logger)
+    protected static string Instance => Guid.NewGuid().ToString();
+
+
+    public void Dispose()
+    {
+        try
+
         {
-            _testFolder = new DirectoryInfo(GetTempPath());
-            _testFolder.Create();
-
-            CreateDatabase();
+            DeleteFolder(_testFolder);
         }
-
-
-        protected static string Instance => Guid.NewGuid().ToString();
-
-
-        public void Dispose()
+        catch
         {
-            try
+        }
+    }
 
+
+    public string GetConnectionString()
+    {
+        var databaseFileName = GetDatabaseFileName();
+        return $"Data Source={databaseFileName};";
+    }
+
+    public void CreateDatabase()
+    {
+        var databaseFileName = GetDatabaseFileName();
+        if (!File.Exists(databaseFileName))
+        {
+            Log.Information((Exception)null, "Using file {0}", databaseFileName);
+            SQLiteConnection.CreateFile(databaseFileName);
+        }
+        else
+        {
+            Log.Information((Exception)null, "File {0} exists", databaseFileName);
+        }
+    }
+
+    public string GetDatabaseFileName()
+    {
+        return Path.Combine(_testFolder.FullName, "database.sqlite");
+    }
+
+
+    protected void DeleteFolder(DirectoryInfo directoryInfo)
+    {
+        foreach (var fileInfo in directoryInfo.GetFiles())
+            try
             {
-                DeleteFolder(_testFolder);
+                fileInfo.Delete();
             }
             catch
             {
             }
-        }
 
-
-        public string GetConnectionString()
-        {
-            var databaseFileName = GetDatabaseFileName();
-            return $"Data Source={databaseFileName};";
-        }
-
-        public void CreateDatabase()
-        {
-            var databaseFileName = GetDatabaseFileName();
-            if (!File.Exists(databaseFileName))
+        foreach (var info in directoryInfo.GetDirectories())
+            try
             {
-                Log.Information((Exception) null, "Using file {0}", databaseFileName);
-                SQLiteConnection.CreateFile(databaseFileName);
+                DeleteFolder(info);
             }
-            else
+            catch
             {
-                Log.Information((Exception) null, "File {0} exists", databaseFileName);
             }
-        }
 
-        public string GetDatabaseFileName()
-        {
-            return Path.Combine(_testFolder.FullName, "database.sqlite");
-        }
+        directoryInfo.Delete();
+    }
 
 
-        protected void DeleteFolder(DirectoryInfo directoryInfo)
-        {
-            foreach (var fileInfo in directoryInfo.GetFiles())
-                try
-                {
-                    fileInfo.Delete();
-                }
-                catch
-                {
-                }
-
-            foreach (var info in directoryInfo.GetDirectories())
-                try
-                {
-                    DeleteFolder(info);
-                }
-                catch
-                {
-                }
-
-            directoryInfo.Delete();
-        }
-
-
-        protected string GetTempPath()
-        {
-            return Path.Combine(Path.GetTempPath(), Assembly.GetExecutingAssembly().GetName().Name, Instance);
-        }
+    protected string GetTempPath()
+    {
+        return Path.Combine(Path.GetTempPath(), Assembly.GetExecutingAssembly().GetName().Name, Instance);
     }
 }

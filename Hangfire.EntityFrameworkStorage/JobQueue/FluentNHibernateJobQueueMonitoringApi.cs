@@ -24,8 +24,8 @@ public class EntityFrameworkJobQueueMonitoringApi : IPersistentJobQueueMonitorin
         {
             if (_queuesCache.Count == 0 || _cacheUpdated.Add(QueuesCacheTimeout) < _storage.UtcNow)
             {
-                var result = _storage.UseStatelessSession(
-                    wrapper => { return wrapper.JobQueues.Select(i => i.Queue).Distinct().ToList(); });
+                var result = _storage.UseDbContext(
+                    dbContext => { return dbContext.JobQueues.Select(i => i.Queue).Distinct().ToList(); });
 
                 _queuesCache = result;
                 _cacheUpdated = _storage.UtcNow;
@@ -37,9 +37,9 @@ public class EntityFrameworkJobQueueMonitoringApi : IPersistentJobQueueMonitorin
 
     public IEnumerable<string> GetEnqueuedJobIds(string queue, int from, int perPage)
     {
-        return _storage.UseStatelessSession(wrapper =>
+        return _storage.UseDbContext(dbContext =>
         {
-            return wrapper.JobQueues
+            return dbContext.JobQueues
                 .OrderBy(i => i.Id)
                 .Where(i => i.Queue == queue)
                 .Select(i => i.Job.Id)
@@ -53,9 +53,9 @@ public class EntityFrameworkJobQueueMonitoringApi : IPersistentJobQueueMonitorin
     public IEnumerable<string> GetFetchedJobIds(string queue, int from, int perPage)
     {
         //return Enumerable.Empty<long>();
-        return _storage.UseStatelessSession(wrapper =>
+        return _storage.UseDbContext(dbContext =>
         {
-            return wrapper.JobQueues
+            return dbContext.JobQueues
                 .Where(i => (i.FetchedAt != null) & (i.Queue == queue))
                 .OrderBy(i => i.Id)
                 .Skip(from)
@@ -67,9 +67,9 @@ public class EntityFrameworkJobQueueMonitoringApi : IPersistentJobQueueMonitorin
 
     public EnqueuedAndFetchedCountDto GetEnqueuedAndFetchedCount(string queue)
     {
-        return _storage.UseStatelessSession(wrapper =>
+        return _storage.UseDbContext(dbContext =>
         {
-            var result = wrapper.JobQueues.Where(i => i.Queue == queue).Select(i => i.FetchedAt).ToList();
+            var result = dbContext.JobQueues.Where(i => i.Queue == queue).Select(i => i.FetchedAt).ToList();
 
             return new EnqueuedAndFetchedCountDto
             {

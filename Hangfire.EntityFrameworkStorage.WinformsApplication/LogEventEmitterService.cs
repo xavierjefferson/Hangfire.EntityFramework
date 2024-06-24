@@ -1,14 +1,13 @@
 ﻿using Serilog.Events;
 
-namespace Hangfire.EntityFrameworkStorage.WinformsApplication
-{
-    public class LogEventEmitterService : ILogEventEmitterService
-    {
-        public event OnEmitHandler OnEmit;
+namespace Hangfire.EntityFrameworkStorage.WinformsApplication;
 
-        public void Emit(LogEvent logEvent)
-        {
-            OnEmit?.Invoke(logEvent);
-        }
+public class LogEventEmitterService : ILogEventEmitterService
+{
+    public event OnEmitHandler OnEmit;
+
+    public void Emit(LogEvent logEvent)
+    {
+        OnEmit?.Invoke(logEvent);
     }
 }

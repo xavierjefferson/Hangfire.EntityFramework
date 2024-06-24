@@ -1,9 +1,8 @@
-namespace Hangfire.EntityFrameworkStorage.SampleStuff
+namespace Hangfire.EntityFrameworkStorage.SampleStuff;
+
+public interface ISqliteTempFileService
 {
-    public interface ISqliteTempFileService
-    {
-        string GetConnectionString();
-        void CreateDatabase();
-        string GetDatabaseFileName();
-    }
+    string GetConnectionString();
+    void CreateDatabase();
+    string GetDatabaseFileName();
 }

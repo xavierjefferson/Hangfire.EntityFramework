@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace Hangfire.EntityFrameworkStorage.JobQueue;
+﻿namespace Hangfire.EntityFrameworkStorage.JobQueue;
 
 public class FetchedJob
 {

@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Data.Common;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading;
 using System.Transactions;
 using Hangfire.EntityFrameworkStorage.Entities;
 using Hangfire.EntityFrameworkStorage.Extensions;
+using Hangfire.EntityFrameworkStorage.Interfaces;
 using Hangfire.Logging;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,8 +16,6 @@ namespace Hangfire.EntityFrameworkStorage;
 
 internal static class SqlUtil
 {
-    
-
     private const int DeleteBatchSize = 250;
     private static readonly ILog Logger = LogProvider.GetLogger(typeof(SqlUtil));
 
@@ -38,7 +38,7 @@ internal static class SqlUtil
     /// <param name="keysetAction">A delegate that sets the primary key properties of instance of T if we have to do an upsert</param>
     public static void UpsertEntity<T>(this DbContext dbContext, Expression<Func<T, bool>> matchFunc,
         Action<T> changeAction,
-        Action<T> keysetAction) where T : HFEntity, new()
+        Action<T> keysetAction) where T : EntityBase, new()
     {
         var entity = dbContext.Set<T>().SingleOrDefault(matchFunc);
         if (entity == null)
@@ -47,14 +47,14 @@ internal static class SqlUtil
             keysetAction(entity);
             changeAction(entity);
             dbContext.Add(entity);
-            dbContext.SaveChanges();
         }
         else
         {
             changeAction(entity);
             dbContext.Update(entity);
-            dbContext.SaveChanges();
         }
+
+        dbContext.SaveChanges();
     }
 
 #if !DEBUG
@@ -64,11 +64,11 @@ internal static class SqlUtil
     ///     delete entities that implement IInt32Id, by using the value stored in their Id property.
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    /// <param name="dbContext">Sessionwrapper instance to act upon</param>
+    /// <param name="dbContext">hangfirecontext instance to act upon</param>
     /// <param name="ids">Collection of ids to delete</param>
     /// <returns>the number of rows deleted</returns>
     public static long DeleteById<T, U>(this HangfireContext dbContext, ICollection<U> ids)
-        where T : HFEntity, IWithID<U>
+        where T : EntityBase, IWithID<U>
     {
         if (!ids.Any())
             return 0;
@@ -98,13 +98,12 @@ internal static class SqlUtil
         {
             return safeFunc();
         }
-        catch (DBConcurrencyException)
+        catch (DbException exception)
         {
-            //do nothing
-        }
-        catch (TransactionException)
-        {
-            //do nothing
+            if (!exception.IsTransient)
+            {
+                throw;
+            }
         }
 
         return default;
@@ -123,12 +122,16 @@ internal static class SqlUtil
             {
                 return safeAction();
             }
-            catch (Exception ex)
+            catch (DbException dbException)
             {
-                if (ex.Message.IndexOf("deadlock", StringComparison.InvariantCultureIgnoreCase) < 0)
+                if (dbException.IsTransient)
+                {
+                    cancellationToken.PollForCancellation(options.DeadlockRetryInterval);
+                }
+                else
+                {
                     throw;
-
-                cancellationToken.PollForCancellation(options.DeadlockRetryInterval);
+                }
             }
     }
 #if !DEBUG

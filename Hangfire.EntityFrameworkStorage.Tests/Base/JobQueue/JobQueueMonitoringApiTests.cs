@@ -1,76 +1,75 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using Hangfire.EntityFrameworkStorage.Entities;
+﻿using Hangfire.EntityFrameworkStorage.Entities;
 using Hangfire.EntityFrameworkStorage.JobQueue;
 using Hangfire.EntityFrameworkStorage.Tests.Base.Fixtures;
 using Xunit;
 
-namespace Hangfire.EntityFrameworkStorage.Tests.Base.JobQueue
+namespace Hangfire.EntityFrameworkStorage.Tests.Base.JobQueue;
+
+public abstract class JobQueueMonitoringApiTests : TestBase, IDisposable
+
 {
-    public abstract class JobQueueMonitoringApiTests : TestBase, IDisposable
+    private readonly EntityFrameworkJobQueueMonitoringApi _api;
 
+    private readonly string _queue = "default";
+
+    protected JobQueueMonitoringApiTests(DatabaseFixtureBase fixture) : base(fixture)
     {
-        protected JobQueueMonitoringApiTests(DatabaseFixtureBase fixture) : base(fixture)
+        var storage = GetStorage();
+
+        _api = new EntityFrameworkJobQueueMonitoringApi(storage);
+    }
+
+    [Fact]
+    public async Task GetEnqueuedAndFetchedCount_ReturnsEqueuedCount_WhenExists()
+    {
+        EnqueuedAndFetchedCountDto? result = null;
+
+        await UseDbContext(async (dbContext) =>
         {
-            var storage = GetStorage();
+            var newJob = await InsertNewJob(dbContext);
+            dbContext.Add(new _JobQueue { Job = newJob, Queue = _queue });
+            await dbContext.SaveChangesAsync();
+            result = _api.GetEnqueuedAndFetchedCount(_queue);
 
-            _api = new EntityFrameworkJobQueueMonitoringApi(storage);
-        }
+            await dbContext.DeleteAllAsync<_JobQueue>();
+        });
 
-        private readonly string _queue = "default";
-        private readonly EntityFrameworkJobQueueMonitoringApi _api;
+        Assert.Equal(1, result?.EnqueuedCount);
+    }
 
-        [Fact]
-        public void GetEnqueuedAndFetchedCount_ReturnsEqueuedCount_WhenExists()
+    [Fact]
+    public async Task GetEnqueuedJobIds_ReturnsCorrectResult()
+    {
+        string[]? result = null;
+        var jobs = new List<_Job>();
+        await UseDbContext(async (dbContext) =>
         {
-            EnqueuedAndFetchedCountDto result = null;
-
-            UseJobStorageConnectionWithSession((session,connection) =>
+            for (var i = 1; i <= 10; i++)
             {
-                var newJob = InsertNewJob(session);
-                session.Insert(new _JobQueue {Job = newJob, Queue = _queue});
+                var newJob = await InsertNewJob(dbContext);
+                jobs.Add(newJob);
+                dbContext.Add(new _JobQueue { Job = newJob, Queue = _queue });
+                await dbContext.SaveChangesAsync();
+            }
 
-                result = _api.GetEnqueuedAndFetchedCount(_queue);
+            //does nothing
+            result = _api.GetEnqueuedJobIds(_queue, 3, 2).ToArray();
 
-                session.DeleteAll<_JobQueue>();
-            });
+            await dbContext.DeleteAllAsync<_JobQueue>();
+        });
 
-            Assert.Equal(1, result.EnqueuedCount);
-        }
-
-        [Fact]
-        public void GetEnqueuedJobIds_ReturnsCorrectResult()
-        {
-            long[] result = null;
-            var jobs = new List<_Job>();
-            UseJobStorageConnectionWithSession((session,connection) =>
-            {
-                for (var i = 1; i <= 10; i++)
-                {
-                    var newJob = InsertNewJob(session);
-                    jobs.Add(newJob);
-                    session.Insert(new _JobQueue {Job = newJob, Queue = _queue});
-                }
-
-                //does nothing
-                result = _api.GetEnqueuedJobIds(_queue, 3, 2).ToArray();
-
-                session.DeleteAll<_JobQueue>();
-            });
-
-            Assert.Equal(2, result.Length);
-            Assert.Equal(jobs[3].Id, result[0]);
-            Assert.Equal(jobs[4].Id, result[1]);
-        }
+        Assert.Equal(2, result?.Length);
+        Assert.Equal(jobs[3].Id, result?[0]);
+        Assert.Equal(jobs[4].Id, result?[1]);
+    }
 
 
-        [Fact]
-        public void GetEnqueuedJobIds_ReturnsEmptyCollection_IfQueueIsEmpty()
-        {
-            var result = _api.GetEnqueuedJobIds(_queue, 5, 15);
+    [Fact]
+    public async Task GetEnqueuedJobIds_ReturnsEmptyCollection_IfQueueIsEmpty()
+    {
+        await Task.CompletedTask;
+        var result = _api.GetEnqueuedJobIds(_queue, 5, 15);
 
-            Assert.Empty(result);
-        }
+        Assert.Empty(result);
     }
 }

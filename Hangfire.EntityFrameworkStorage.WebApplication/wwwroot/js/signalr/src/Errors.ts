@@ -10,7 +10,7 @@ export class HttpError extends Error {
     private __proto__: Error;
 
     /** The HTTP status code represented by this error. */
-    public statusCode: number;
+    statusCode: number;
 
     /** Constructs a new instance of {@link @microsoft/signalr.HttpError}.
      *
@@ -76,10 +76,10 @@ export class UnsupportedTransportError extends Error {
     private __proto__: Error;
 
     /** The {@link @microsoft/signalr.HttpTransportType} this error occured on. */
-    public transport: HttpTransportType;
+    transport: HttpTransportType;
 
     /** The type name of this error. */
-    public errorType: string;
+    errorType: string;
 
     /** Constructs a new instance of {@link @microsoft/signalr.UnsupportedTransportError}.
      *
@@ -90,7 +90,7 @@ export class UnsupportedTransportError extends Error {
         const trueProto = new.target.prototype;
         super(message);
         this.transport = transport;
-        this.errorType = 'UnsupportedTransportError';
+        this.errorType = "UnsupportedTransportError";
 
         // Workaround issue in Typescript compiler
         // https://github.com/Microsoft/TypeScript/issues/13965#issuecomment-278570200
@@ -106,10 +106,10 @@ export class DisabledTransportError extends Error {
     private __proto__: Error;
 
     /** The {@link @microsoft/signalr.HttpTransportType} this error occured on. */
-    public transport: HttpTransportType;
+    transport: HttpTransportType;
 
     /** The type name of this error. */
-    public errorType: string;
+    errorType: string;
 
     /** Constructs a new instance of {@link @microsoft/signalr.DisabledTransportError}.
      *
@@ -120,7 +120,7 @@ export class DisabledTransportError extends Error {
         const trueProto = new.target.prototype;
         super(message);
         this.transport = transport;
-        this.errorType = 'DisabledTransportError';
+        this.errorType = "DisabledTransportError";
 
         // Workaround issue in Typescript compiler
         // https://github.com/Microsoft/TypeScript/issues/13965#issuecomment-278570200
@@ -136,10 +136,10 @@ export class FailedToStartTransportError extends Error {
     private __proto__: Error;
 
     /** The {@link @microsoft/signalr.HttpTransportType} this error occured on. */
-    public transport: HttpTransportType;
+    transport: HttpTransportType;
 
     /** The type name of this error. */
-    public errorType: string;
+    errorType: string;
 
     /** Constructs a new instance of {@link @microsoft/signalr.FailedToStartTransportError}.
      *
@@ -150,7 +150,7 @@ export class FailedToStartTransportError extends Error {
         const trueProto = new.target.prototype;
         super(message);
         this.transport = transport;
-        this.errorType = 'FailedToStartTransportError';
+        this.errorType = "FailedToStartTransportError";
 
         // Workaround issue in Typescript compiler
         // https://github.com/Microsoft/TypeScript/issues/13965#issuecomment-278570200
@@ -166,7 +166,7 @@ export class FailedToNegotiateWithServerError extends Error {
     private __proto__: Error;
 
     /** The type name of this error. */
-    public errorType: string;
+    errorType: string;
 
     /** Constructs a new instance of {@link @microsoft/signalr.FailedToNegotiateWithServerError}.
      *
@@ -175,7 +175,7 @@ export class FailedToNegotiateWithServerError extends Error {
     constructor(message: string) {
         const trueProto = new.target.prototype;
         super(message);
-        this.errorType = 'FailedToNegotiateWithServerError';
+        this.errorType = "FailedToNegotiateWithServerError";
 
         // Workaround issue in Typescript compiler
         // https://github.com/Microsoft/TypeScript/issues/13965#issuecomment-278570200
@@ -191,7 +191,7 @@ export class AggregateErrors extends Error {
     private __proto__: Error;
 
     /** The collection of errors this error is aggregating. */
-    public innerErrors: Error[];
+    innerErrors: Error[];
 
     /** Constructs a new instance of {@link @microsoft/signalr.AggregateErrors}.
      *

@@ -24,15 +24,18 @@ export class LongPollingTransport implements ITransport {
     private _receiving?: Promise<void>;
     private _closeError?: Error;
 
-    public onreceive: ((data: string | ArrayBuffer) => void) | null;
-    public onclose: ((error?: Error) => void) | null;
+    onreceive: ((data: string | ArrayBuffer) => void) | null;
+    onclose: ((error?: Error) => void) | null;
 
     // This is an internal type, not exported from 'index' so this is really just internal.
-    public get pollAborted(): boolean {
+    get pollAborted(): boolean {
         return this._pollAbort.aborted;
     }
 
-    constructor(httpClient: HttpClient, accessTokenFactory: (() => string | Promise<string>) | undefined, logger: ILogger, options: IHttpConnectionOptions) {
+    constructor(httpClient: HttpClient,
+        accessTokenFactory: (() => string | Promise<string>) | undefined,
+        logger: ILogger,
+        options: IHttpConnectionOptions) {
         this._httpClient = httpClient;
         this._accessTokenFactory = accessTokenFactory;
         this._logger = logger;
@@ -45,7 +48,7 @@ export class LongPollingTransport implements ITransport {
         this.onclose = null;
     }
 
-    public async connect(url: string, transferFormat: TransferFormat): Promise<void> {
+    async connect(url: string, transferFormat: TransferFormat): Promise<void> {
         Arg.isRequired(url, "url");
         Arg.isRequired(transferFormat, "transferFormat");
         Arg.isIn(transferFormat, TransferFormat, "transferFormat");
@@ -57,7 +60,8 @@ export class LongPollingTransport implements ITransport {
         // Allow binary format on Node and Browsers that support binary content (indicated by the presence of responseType property)
         if (transferFormat === TransferFormat.Binary &&
             (typeof XMLHttpRequest !== "undefined" && typeof new XMLHttpRequest().responseType !== "string")) {
-            throw new Error("Binary protocols over XmlHttpRequest not implementing advanced features are not supported.");
+            throw new Error(
+                "Binary protocols over XmlHttpRequest not implementing advanced features are not supported.");
         }
 
         const [name, value] = getUserAgentHeader();
@@ -83,7 +87,8 @@ export class LongPollingTransport implements ITransport {
         this._logger.log(LogLevel.Trace, `(LongPolling transport) polling: ${pollUrl}.`);
         const response = await this._httpClient.get(pollUrl, pollOptions);
         if (response.statusCode !== 200) {
-            this._logger.log(LogLevel.Error, `(LongPolling transport) Unexpected response code: ${response.statusCode}.`);
+            this._logger.log(LogLevel.Error,
+                `(LongPolling transport) Unexpected response code: ${response.statusCode}.`);
 
             // Mark running as false so that the poll immediately ends and runs the close logic
             this._closeError = new HttpError(response.statusText || "", response.statusCode);
@@ -133,7 +138,8 @@ export class LongPollingTransport implements ITransport {
 
                         this._running = false;
                     } else if (response.statusCode !== 200) {
-                        this._logger.log(LogLevel.Error, `(LongPolling transport) Unexpected response code: ${response.statusCode}.`);
+                        this._logger.log(LogLevel.Error,
+                            `(LongPolling transport) Unexpected response code: ${response.statusCode}.`);
 
                         // Unexpected status code
                         this._closeError = new HttpError(response.statusText || "", response.statusCode);
@@ -141,7 +147,9 @@ export class LongPollingTransport implements ITransport {
                     } else {
                         // Process the response
                         if (response.content) {
-                            this._logger.log(LogLevel.Trace, `(LongPolling transport) data received. ${getDataDetail(response.content, this._options.logMessageContent!)}.`);
+                            this._logger.log(LogLevel.Trace,
+                                `(LongPolling transport) data received. ${getDataDetail(response.content,
+                                    this._options.logMessageContent!)}.`);
                             if (this.onreceive) {
                                 this.onreceive(response.content);
                             }
@@ -153,7 +161,8 @@ export class LongPollingTransport implements ITransport {
                 } catch (e) {
                     if (!this._running) {
                         // Log but disregard errors that occur after stopping
-                        this._logger.log(LogLevel.Trace, `(LongPolling transport) Poll errored after shutdown: ${e.message}`);
+                        this._logger.log(LogLevel.Trace,
+                            `(LongPolling transport) Poll errored after shutdown: ${e.message}`);
                     } else {
                         if (e instanceof TimeoutError) {
                             // Ignore timeouts and reissue the poll.
@@ -177,14 +186,20 @@ export class LongPollingTransport implements ITransport {
         }
     }
 
-    public async send(data: any): Promise<void> {
+    async send(data: any): Promise<void> {
         if (!this._running) {
             return Promise.reject(new Error("Cannot send until the transport is connected"));
         }
-        return sendMessage(this._logger, "LongPolling", this._httpClient, this._url!, this._accessTokenFactory, data, this._options);
+        return sendMessage(this._logger,
+            "LongPolling",
+            this._httpClient,
+            this._url!,
+            this._accessTokenFactory,
+            data,
+            this._options);
     }
 
-    public async stop(): Promise<void> {
+    async stop(): Promise<void> {
         this._logger.log(LogLevel.Trace, "(LongPolling transport) Stopping polling.");
 
         // Tell receiving loop to stop, abort any current request, and then wait for it to finish
@@ -197,7 +212,7 @@ export class LongPollingTransport implements ITransport {
             // Send DELETE to clean up long polling on the server
             this._logger.log(LogLevel.Trace, `(LongPolling transport) sending DELETE request to ${this._url}.`);
 
-            const headers: {[k: string]: string} = {};
+            const headers: { [k: string]: string } = {};
             const [name, value] = getUserAgentHeader();
             headers[name] = value;
 
@@ -224,7 +239,7 @@ export class LongPollingTransport implements ITransport {
         if (this.onclose) {
             let logMessage = "(LongPolling transport) Firing onclose event.";
             if (this._closeError) {
-                logMessage += " Error: " + this._closeError;
+                logMessage += ` Error: ${this._closeError}`;
             }
             this._logger.log(LogLevel.Trace, logMessage);
             this.onclose(this._closeError);

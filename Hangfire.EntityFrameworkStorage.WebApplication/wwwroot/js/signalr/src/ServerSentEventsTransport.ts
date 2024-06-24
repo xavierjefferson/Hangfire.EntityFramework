@@ -17,11 +17,13 @@ export class ServerSentEventsTransport implements ITransport {
     private _eventSource?: EventSource;
     private _url?: string;
 
-    public onreceive: ((data: string | ArrayBuffer) => void) | null;
-    public onclose: ((error?: Error) => void) | null;
+    onreceive: ((data: string | ArrayBuffer) => void) | null;
+    onclose: ((error?: Error) => void) | null;
 
-    constructor(httpClient: HttpClient, accessTokenFactory: (() => string | Promise<string>) | undefined, logger: ILogger,
-                options: IHttpConnectionOptions) {
+    constructor(httpClient: HttpClient,
+        accessTokenFactory: (() => string | Promise<string>) | undefined,
+        logger: ILogger,
+        options: IHttpConnectionOptions) {
         this._httpClient = httpClient;
         this._accessTokenFactory = accessTokenFactory;
         this._logger = logger;
@@ -31,7 +33,7 @@ export class ServerSentEventsTransport implements ITransport {
         this.onclose = null;
     }
 
-    public async connect(url: string, transferFormat: TransferFormat): Promise<void> {
+    async connect(url: string, transferFormat: TransferFormat): Promise<void> {
         Arg.isRequired(url, "url");
         Arg.isRequired(transferFormat, "transferFormat");
         Arg.isIn(transferFormat, TransferFormat, "transferFormat");
@@ -66,14 +68,20 @@ export class ServerSentEventsTransport implements ITransport {
                 const [name, value] = getUserAgentHeader();
                 headers[name] = value;
 
-                eventSource = new this._options.EventSource!(url, { withCredentials: this._options.withCredentials, headers: { ...headers, ...this._options.headers} } as EventSourceInit);
+                eventSource = new this._options.EventSource!(url,
+                    {
+                        withCredentials: this._options.withCredentials,
+                        headers: { ...headers, ...this._options.headers }
+                    } as EventSourceInit);
             }
 
             try {
                 eventSource.onmessage = (e: MessageEvent) => {
                     if (this.onreceive) {
                         try {
-                            this._logger.log(LogLevel.Trace, `(SSE transport) data received. ${getDataDetail(e.data, this._options.logMessageContent!)}.`);
+                            this._logger.log(LogLevel.Trace,
+                                `(SSE transport) data received. ${getDataDetail(e.data,
+                                    this._options.logMessageContent!)}.`);
                             this.onreceive(e.data);
                         } catch (error) {
                             this._close(error);
@@ -88,9 +96,10 @@ export class ServerSentEventsTransport implements ITransport {
                     if (opened) {
                         this._close();
                     } else {
-                        reject(new Error("EventSource failed to connect. The connection could not be found on the server,"
-                        + " either the connection ID is not present on the server, or a proxy is refusing/buffering the connection."
-                        + " If you have multiple servers check that sticky sessions are enabled."));
+                        reject(new Error(
+                            "EventSource failed to connect. The connection could not be found on the server," +
+                            " either the connection ID is not present on the server, or a proxy is refusing/buffering the connection." +
+                            " If you have multiple servers check that sticky sessions are enabled."));
                     }
                 };
 
@@ -107,14 +116,20 @@ export class ServerSentEventsTransport implements ITransport {
         });
     }
 
-    public async send(data: any): Promise<void> {
+    async send(data: any): Promise<void> {
         if (!this._eventSource) {
             return Promise.reject(new Error("Cannot send until the transport is connected"));
         }
-        return sendMessage(this._logger, "SSE", this._httpClient, this._url!, this._accessTokenFactory, data, this._options);
+        return sendMessage(this._logger,
+            "SSE",
+            this._httpClient,
+            this._url!,
+            this._accessTokenFactory,
+            data,
+            this._options);
     }
 
-    public stop(): Promise<void> {
+    stop(): Promise<void> {
         this._close();
         return Promise.resolve();
     }

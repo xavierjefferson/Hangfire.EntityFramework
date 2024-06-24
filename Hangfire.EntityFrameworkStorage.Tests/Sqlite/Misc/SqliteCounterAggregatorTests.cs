@@ -2,13 +2,12 @@
 using Hangfire.EntityFrameworkStorage.Tests.Sqlite.Fixtures;
 using Xunit;
 
-namespace Hangfire.EntityFrameworkStorage.Tests.Sqlite.Misc
+namespace Hangfire.EntityFrameworkStorage.Tests.Sqlite.Misc;
+
+[Collection(Constants.SqliteFixtureCollectionName)]
+public class SqliteCounterAggregatorTests : CountersAggregatorTestsBase
 {
-    [Collection(Constants.SqliteFixtureCollectionName)]
-    public class SqliteCounterAggregatorTests : CountersAggregatorTestsBase
+    public SqliteCounterAggregatorTests(SqliteTestDatabaseFixture fixture) : base(fixture)
     {
-        public SqliteCounterAggregatorTests(SqliteTestDatabaseFixture fixture) : base(fixture)
-        {
-        }
     }
 }

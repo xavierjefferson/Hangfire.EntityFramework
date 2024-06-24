@@ -16,28 +16,25 @@ using Newtonsoft.Json;
 
 namespace Hangfire.EntityFrameworkStorage;
 
-public class EntityFrameworkJobStorage : JobStorage, IDisposable
+public class EntityFrameworkJobStorage : JobStorage
 {
     private static readonly ILog Logger = LogProvider.For<EntityFrameworkJobStorage>();
     private readonly IServiceProvider _serviceProvider;
-
-
     private readonly TimeSpan _utcOffset = TimeSpan.Zero;
-
     private CountersAggregator _countersAggregator;
-    private bool _disposedValue;
     private ExpirationManager _expirationManager;
     private ServerTimeSyncManager _serverTimeSyncManager;
 
     public EntityFrameworkJobStorage(Action<DbContextOptionsBuilder> dbContextOptionsBuilder,
         EntityFrameworkStorageOptions options = null)
     {
+        if (dbContextOptionsBuilder == null) throw new ArgumentNullException(nameof(dbContextOptionsBuilder));
         var serviceCollection = new ServiceCollection();
         serviceCollection.AddDbContext<HangfireContext>(i =>
         {
             dbContextOptionsBuilder(i);
-            i.ConfigureWarnings(x => x.Ignore(RelationalEventId.AmbientTransactionWarning));
-        });
+           
+        }, ServiceLifetime.Transient);
         _serviceProvider = serviceCollection.BuildServiceProvider();
         Initialize(options);
     }
@@ -50,11 +47,6 @@ public class EntityFrameworkJobStorage : JobStorage, IDisposable
 
     public DateTime UtcNow => DateTime.UtcNow.Add(_utcOffset);
 
-    public HangfireContext GetDbContext()
-    {
-        var a = _serviceProvider.CreateScope().ServiceProvider.GetRequiredService<HangfireContext>();
-        return a;
-    }
 
     public void RefreshUtcOFfset()
     {
@@ -91,20 +83,20 @@ public class EntityFrameworkJobStorage : JobStorage, IDisposable
     {
         try
         {
-            UseDbContextInTransaction(wrapper =>
+            UseDbContextInTransaction(dbContext =>
             {
-                var count = wrapper.Duals.Count();
+                var count = dbContext.Duals.Count();
                 switch (count)
                 {
                     case 1:
                         return;
                     case 0:
-                        wrapper.Add(new _Dual { Id = 1 });
-                        wrapper.SaveChanges();
+                        dbContext.Add(new _Dual { Id = 1 });
+                        dbContext.SaveChanges();
                         break;
                     default:
-                        wrapper.DeleteById<_Dual, int>(
-                            wrapper.Duals.Skip(1).Select(i => i.Id).ToList());
+                        dbContext.DeleteById<_Dual, int>(
+                            dbContext.Duals.Skip(1).Select(i => i.Id).ToList());
                         break;
                 }
             });
@@ -147,7 +139,7 @@ public class EntityFrameworkJobStorage : JobStorage, IDisposable
     {
         using (var transaction = CreateTransaction())
         {
-            var result = UseStatelessSession(func);
+            var result = UseDbContext(func);
             transaction.Complete();
             return result;
         }
@@ -155,9 +147,9 @@ public class EntityFrameworkJobStorage : JobStorage, IDisposable
 
     internal void UseDbContextInTransaction([InstantHandle] Action<HangfireContext> action)
     {
-        UseDbContextInTransaction(statelessSessionWrapper =>
+        UseDbContextInTransaction(dbContext =>
         {
-            action(statelessSessionWrapper);
+            action(dbContext);
             return false;
         });
     }
@@ -174,17 +166,17 @@ public class EntityFrameworkJobStorage : JobStorage, IDisposable
     }
 
 
-    public void UseStatelessSession([InstantHandle] Action<HangfireContext> action)
+    public void UseDbContext([InstantHandle] Action<HangfireContext> action)
     {
-        using (var dbContext = GetDbContext())
+        using (var dbContext = _serviceProvider.GetRequiredService<HangfireContext>())
         {
             action(dbContext);
         }
     }
 
-    public T UseStatelessSession<T>([InstantHandle] Func<HangfireContext, T> func)
+    public T UseDbContext<T>([InstantHandle] Func<HangfireContext, T> func)
     {
-        using (var dbContext = GetDbContext())
+        using (var dbContext = _serviceProvider.GetRequiredService<HangfireContext>())
         {
             return func(dbContext);
         }
@@ -200,44 +192,6 @@ public class EntityFrameworkJobStorage : JobStorage, IDisposable
 
     {
         return new List<IServerComponent> { _expirationManager, _countersAggregator, _serverTimeSyncManager };
-    }
-
-    protected virtual void Dispose(bool disposing)
-    {
-        if (!_disposedValue)
-            if (disposing)
-                //if (_sessionFactory != null)
-                //{
-                //    try
-                //    {
-                //        if (!_sessionFactory.IsClosed)
-                //            _sessionFactory.Close();
-                //    }
-                //    catch
-                //    {
-                //        // ignored
-                //    }
-                //    _sessionFactory.Dispose();
-                //    _sessionFactory = null;
-                //}
-                // TODO: dispose managed state (managed objects)
-                // TODO: free unmanaged resources (unmanaged objects) and override finalizer
-                // TODO: set large fields to null
-                _disposedValue = true;
-    }
-
-    // // TODO: override finalizer only if 'Dispose(bool disposing)' has code to free unmanaged resources
-    // ~EntityFrameworkJobStorage()
-    // {
-    //     // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
-    //     Dispose(disposing: false);
-    // }
-
-    public void Dispose()
-    {
-        // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
-        Dispose(true);
-        GC.SuppressFinalize(this);
     }
 
 #pragma warning restore 618

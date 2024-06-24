@@ -1,43 +1,45 @@
-﻿using System;
-using Xunit;
+﻿using Xunit;
 
-namespace Hangfire.EntityFrameworkStorage.Tests.Base.Misc
+namespace Hangfire.EntityFrameworkStorage.Tests.Base.Misc;
+
+public abstract class StorageOptionsTests
 {
-    public class StorageOptionsTests
+    [Fact]
+    public async Task Ctor_SetsTheDefaultOptions()
     {
-        [Fact]
-        public void Ctor_SetsTheDefaultOptions()
-        {
-            var options = new EntityFrameworkStorageOptions();
+        await Task.CompletedTask;
+        var options = new EntityFrameworkStorageOptions();
 
-            Assert.True(options.QueuePollInterval > TimeSpan.Zero);
+        Assert.True(options.QueuePollInterval > TimeSpan.Zero);
 
-            Assert.True(options.JobExpirationCheckInterval > TimeSpan.Zero);
-            Assert.True(options.UpdateSchema);
-        }
+        Assert.True(options.JobExpirationCheckInterval > TimeSpan.Zero);
+        Assert.True(options.UpdateSchema);
+    }
 
-        [Fact]
-        public void Set_QueuePollInterval_SetsTheValue()
-        {
-            var options = new EntityFrameworkStorageOptions();
-            options.QueuePollInterval = TimeSpan.FromSeconds(1);
-            Assert.Equal(TimeSpan.FromSeconds(1), options.QueuePollInterval);
-        }
+    [Fact]
+    public async Task Set_QueuePollInterval_SetsTheValue()
+    {
+        await Task.CompletedTask;
+        var options = new EntityFrameworkStorageOptions();
+        options.QueuePollInterval = TimeSpan.FromSeconds(1);
+        Assert.Equal(TimeSpan.FromSeconds(1), options.QueuePollInterval);
+    }
 
-        [Fact]
-        public void Set_QueuePollInterval_ShouldThrowAnException_WhenGivenIntervalIsEqualToZero()
-        {
-            var options = new EntityFrameworkStorageOptions();
-            Assert.Throws<ArgumentException>(
-                () => options.QueuePollInterval = TimeSpan.Zero);
-        }
+    [Fact]
+    public async Task Set_QueuePollInterval_ShouldThrowAnException_WhenGivenIntervalIsEqualToZero()
+    {
+        await Task.CompletedTask;
+        var options = new EntityFrameworkStorageOptions();
+        Assert.Throws<ArgumentException>(
+            () => options.QueuePollInterval = TimeSpan.Zero);
+    }
 
-        [Fact]
-        public void Set_QueuePollInterval_ShouldThrowAnException_WhenGivenIntervalIsNegative()
-        {
-            var options = new EntityFrameworkStorageOptions();
-            Assert.Throws<ArgumentException>(
-                () => options.QueuePollInterval = TimeSpan.FromSeconds(-1));
-        }
+    [Fact]
+    public async Task Set_QueuePollInterval_ShouldThrowAnException_WhenGivenIntervalIsNegative()
+    {
+        await Task.CompletedTask;
+        var options = new EntityFrameworkStorageOptions();
+        Assert.Throws<ArgumentException>(
+            () => options.QueuePollInterval = TimeSpan.FromSeconds(-1));
     }
 }

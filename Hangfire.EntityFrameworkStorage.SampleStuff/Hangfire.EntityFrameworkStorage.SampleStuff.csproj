@@ -5,11 +5,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="bogus" Version="34.0.2" />
+    <PackageReference Include="bogus" Version="35.5.1" />
     <PackageReference Include="hangfire.core" Version="1.8.14" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.1" />
     <PackageReference Include="serilog" Version="2.11.0" />
-    <PackageReference Include="system.data.sqlite" Version="1.0.116" />	<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="6.0.31" />
+    <PackageReference Include="system.data.sqlite" Version="1.0.118" />	<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="6.0.31" />
   </ItemGroup>
 
   <ItemGroup>

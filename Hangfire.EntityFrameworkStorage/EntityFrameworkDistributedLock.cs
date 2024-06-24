@@ -117,23 +117,23 @@ public class EntityFrameworkDistributedLock : IDisposable, IComparable
         throw new DistributedLockTimeoutException(_resource);
     }
 
-    private bool TryAcquireWithEntity(HangfireContext wrapper)
+    private bool TryAcquireWithEntity(HangfireContext dbContext)
     {
-        var distributedLock = wrapper.DistributedLocks
+        var distributedLock = dbContext.DistributedLocks
             .FirstOrDefault(i => i.Resource == _resource);
 
         var utcNow = _storage.UtcNow;
-        var expireAtAsLong = utcNow.Add(_timeout).ToEpochDate();
+        var expireAt = utcNow.Add(_timeout).ToEpochDate();
         if (distributedLock == null)
         {
             distributedLock = new _DistributedLock
             {
-                CreatedAt = utcNow,
+                CreatedAt = utcNow.ToEpochDate(),
                 Resource = _resource,
-                ExpireAtAsLong = expireAtAsLong
+                ExpireAt = expireAt
             };
-            wrapper.Add(distributedLock);
-            wrapper.SaveChanges();
+            dbContext.Add(distributedLock);
+            dbContext.SaveChanges();
 
             _lockId = distributedLock.Id;
 
@@ -142,12 +142,12 @@ public class EntityFrameworkDistributedLock : IDisposable, IComparable
             return true;
         }
 
-        if (distributedLock.ExpireAtAsLong < utcNow.ToEpochDate())
+        if (distributedLock.ExpireAt < utcNow.ToEpochDate())
         {
-            distributedLock.CreatedAt = utcNow;
-            distributedLock.ExpireAtAsLong = expireAtAsLong;
-            wrapper.Update(distributedLock);
-            wrapper.SaveChanges();
+            distributedLock.CreatedAt = utcNow.ToEpochDate();
+            distributedLock.ExpireAt = expireAt;
+            dbContext.Update(distributedLock);
+            dbContext.SaveChanges();
             if (Logger.IsDebugEnabled())
                 Logger.Debug($"Re-used row for distributed lock '{_resource}'");
             _lockId = distributedLock.Id;
@@ -167,10 +167,10 @@ public class EntityFrameworkDistributedLock : IDisposable, IComparable
                 lock (Mutex)
                 {
                     if (_lockId.HasValue)
-                        _storage.UseStatelessSession(wrapper =>
+                        _storage.UseDbContext(dbContext =>
                         {
-                            wrapper.RemoveRange(wrapper.DistributedLocks.Where(i => i.Id == _lockId));
-                            wrapper.SaveChanges();
+                            dbContext.RemoveRange(dbContext.DistributedLocks.Where(i => i.Id == _lockId));
+                            dbContext.SaveChanges();
                             Logger.DebugFormat("Released distributed lock for {0}", _resource);
                             _lockId = null;
                         });

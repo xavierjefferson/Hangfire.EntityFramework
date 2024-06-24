@@ -4,6 +4,8 @@ using System.Linq;
 using System.Threading;
 using Hangfire.Common;
 using Hangfire.EntityFrameworkStorage.Entities;
+using Hangfire.EntityFrameworkStorage.Extensions;
+using Hangfire.EntityFrameworkStorage.Interfaces;
 using Hangfire.Logging;
 using Hangfire.Server;
 using Hangfire.Storage;
@@ -44,9 +46,9 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
         if (toScore < fromScore)
             throw new ArgumentException("The `toScore` value must be higher or equal to the `fromScore` value.",
                 nameof(toScore));
-        return Storage.UseDbContextInTransaction(wrapper =>
+        return Storage.UseDbContextInTransaction(dbContext =>
         {
-            return wrapper.Sets.Where(i => i.Key == key && i.Score > fromScore && i.Score <= toScore)
+            return dbContext.Sets.Where(i => i.Key == key && i.Score > fromScore && i.Score <= toScore)
                 .OrderBy(i => i.Score).Select(i => i.Value).Take(count).ToList();
         });
     }
@@ -61,31 +63,28 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
 
         Logger.DebugFormat("CreateExpiredJob={0}", SerializationHelper.Serialize(invocationData));
 
-        return Storage.UseDbContextInTransaction(wrapper =>
+        return Storage.UseDbContextInTransaction(dbContext =>
         {
             var jobEntity = new _Job
             {
                 InvocationData = SerializationHelper.Serialize(invocationData),
                 Arguments = invocationData.Arguments,
-                CreatedAt = createdAt,
-                ExpireAt = createdAt.Add(expireIn)
+                CreatedAt = createdAt.ToEpochDate(),
+                ExpireAt = createdAt.Add(expireIn).ToEpochDate()
             };
-            wrapper.Add(jobEntity);
-            wrapper.SaveChanges();
+            dbContext.Add(jobEntity);
+            dbContext.SaveChanges();
             //does nothing
             foreach (var keyValuePair in parameters)
-            {
-                wrapper.Add(new _JobParameter
+                dbContext.Add(new _JobParameter
                 {
                     Job = jobEntity,
                     Name = keyValuePair.Key,
                     Value = keyValuePair.Value
                 });
-                wrapper.SaveChanges();
-            }
-
+            dbContext.SaveChanges();
             //does nothing
-            return jobEntity.Id.ToString();
+            return jobEntity.Id;
         });
     }
 
@@ -139,8 +138,8 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
         if (jobId == null) throw new ArgumentNullException(nameof(jobId));
         if (name == null) throw new ArgumentNullException(nameof(name));
 
-        return Storage.UseStatelessSession(wrapper =>
-            wrapper.JobParameters
+        return Storage.UseDbContext(dbContext =>
+            dbContext.JobParameters
                 .Where(i => i.Job.Id == jobId && i.Name == name)
                 .Select(i => i.Value)
                 .SingleOrDefault());
@@ -152,10 +151,10 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
 
         Logger.DebugFormat("Get job data for job '{0}'", jobId);
 
-        return Storage.UseStatelessSession(wrapper =>
+        return Storage.UseDbContext(dbContext =>
         {
             var jobData =
-                wrapper.Set<_Job>()
+                dbContext.Jobs
                     .SingleOrDefault(i => i.Id == jobId);
 
             if (jobData == null) return null;
@@ -175,11 +174,12 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
                 loadException = ex;
             }
 
+            var createdAt = jobData.CreatedAt.FromEpochDate();
             return new JobData
             {
                 Job = job,
                 State = jobData.StateName,
-                CreatedAt = jobData.CreatedAt,
+                CreatedAt = createdAt,
                 LoadException = loadException
             };
         });
@@ -189,9 +189,9 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
     {
         if (jobId == null) throw new ArgumentNullException(nameof(Job));
 
-        return Storage.UseStatelessSession(wrapper =>
+        return Storage.UseDbContext(dbContext =>
         {
-            var job = wrapper.Jobs
+            var job = dbContext.Jobs
                 .Where(i => i.Id == jobId)
                 .Select(i => new { i.StateName, i.StateData, i.StateReason })
                 .SingleOrDefault();
@@ -214,7 +214,7 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
         if (serverId == null) throw new ArgumentNullException(nameof(serverId));
         if (context == null) throw new ArgumentNullException(nameof(context));
 
-        Storage.UseDbContextInTransaction(wrapper =>
+        Storage.UseDbContextInTransaction(dbContext =>
         {
             var data = SerializationHelper.Serialize(new ServerData
             {
@@ -223,9 +223,9 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
                 StartedAt = Storage.UtcNow
             });
 
-            wrapper.UpsertEntity<_Server>(i => i.Id == serverId, server =>
+            dbContext.UpsertEntity<_Server>(i => i.Id == serverId, server =>
             {
-                server.LastHeartbeat = Storage.UtcNow;
+                server.LastHeartbeat = Storage.UtcNow.ToEpochDate();
                 server.Data = data;
             }, server => { server.Id = serverId; });
         });
@@ -235,10 +235,10 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
     {
         if (serverId == null) throw new ArgumentNullException(nameof(serverId));
 
-        Storage.UseStatelessSession(wrapper =>
+        Storage.UseDbContext(dbContext =>
         {
-            wrapper.RemoveRange(wrapper.Servers.Where(i => i.Id == serverId));
-            wrapper.SaveChanges();
+            dbContext.RemoveRange(dbContext.Servers.Where(i => i.Id == serverId));
+            dbContext.SaveChanges();
         });
     }
 
@@ -246,14 +246,14 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
     {
         if (serverId == null) throw new ArgumentNullException(nameof(serverId));
 
-        Storage.UseStatelessSession(wrapper =>
+        Storage.UseDbContext(dbContext =>
         {
-            var tmp = wrapper.Servers.FirstOrDefault(i => i.Id == serverId);
+            var tmp = dbContext.Servers.FirstOrDefault(i => i.Id == serverId);
             if (tmp != null)
             {
-                tmp.LastHeartbeat = Storage.UtcNow;
-                wrapper.Update(tmp);
-                wrapper.SaveChanges();
+                tmp.LastHeartbeat = Storage.UtcNow.ToEpochDate();
+                dbContext.Update(tmp);
+                dbContext.SaveChanges();
             }
         });
     }
@@ -265,11 +265,11 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
                 nameof(timeOut));
 
         return
-            Storage.UseStatelessSession(wrapper =>
+            Storage.UseDbContext(dbContext =>
             {
-                wrapper.RemoveRange(wrapper.Servers.Where(i =>
-                    i.LastHeartbeat < Storage.UtcNow.Subtract(timeOut)));
-                return wrapper.SaveChanges();
+                dbContext.RemoveRange(dbContext.Servers.Where(i =>
+                    i.LastHeartbeat < Storage.UtcNow.Subtract(timeOut).ToEpochDate()));
+                return dbContext.SaveChanges();
             });
     }
 
@@ -278,16 +278,16 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
         if (key == null) throw new ArgumentNullException(nameof(key));
 
         return
-            Storage.UseStatelessSession(wrapper =>
-                wrapper.Sets.Count(i => i.Key == key));
+            Storage.UseDbContext(dbContext =>
+                dbContext.Sets.Count(i => i.Key == key));
     }
 
     public override List<string> GetRangeFromSet(string key, int startingFrom, int endingAt)
     {
         if (key == null) throw new ArgumentNullException(nameof(key));
-        return Storage.UseStatelessSession(wrapper =>
+        return Storage.UseDbContext(dbContext =>
         {
-            return wrapper.Sets
+            return dbContext.Sets
                 .OrderBy(i => i.Id)
                 .Where(i => i.Key == key)
                 .Skip(startingFrom)
@@ -302,9 +302,9 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
         if (key == null) throw new ArgumentNullException(nameof(key));
 
         return
-            Storage.UseStatelessSession(wrapper =>
+            Storage.UseDbContext(dbContext =>
             {
-                var result = wrapper.Sets
+                var result = dbContext.Sets
                     .Where(i => i.Key == key)
                     .OrderBy(i => i.Id)
                     .Select(i => i.Value)
@@ -321,8 +321,8 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
                 nameof(toScore), nameof(fromScore)));
 
         return
-            Storage.UseStatelessSession(wrapper =>
-                wrapper.Sets
+            Storage.UseDbContext(dbContext =>
+                dbContext.Sets
                     .OrderBy(i => i.Score)
                     .Where(i => i.Key == key && i.Score >= fromScore && i.Score <= toScore)
                     .Select(i => i.Value)
@@ -333,15 +333,15 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
     {
         if (key == null) throw new ArgumentNullException(nameof(key));
         return
-            Storage.UseStatelessSession(wrapper =>
+            Storage.UseDbContext(dbContext =>
             {
                 //have to compensate for NH processing of sums when there are no matching results.
                 var counterSum = 0;
-                if (wrapper.Counters.Any(i => i.Key == key))
-                    counterSum = wrapper.Counters.Where(i => i.Key == key).Sum(i => i.Value);
+                if (dbContext.Counters.Any(i => i.Key == key))
+                    counterSum = dbContext.Counters.Where(i => i.Key == key).Sum(i => i.Value);
                 var aggregatedCounterSum = 0;
-                if (wrapper.AggregatedCounters.Any(i => i.Key == key))
-                    aggregatedCounterSum = wrapper.AggregatedCounters.Where(i => i.Key == key)
+                if (dbContext.AggregatedCounters.Any(i => i.Key == key))
+                    aggregatedCounterSum = dbContext.AggregatedCounters.Where(i => i.Key == key)
                         .Sum(i => i.Value);
 
                 return counterSum + aggregatedCounterSum;
@@ -353,8 +353,8 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
         if (key == null) throw new ArgumentNullException(nameof(key));
 
         return
-            Storage.UseStatelessSession(wrapper =>
-                wrapper.Hashes.Count(i => i.Key == key));
+            Storage.UseDbContext(dbContext =>
+                dbContext.Hashes.Count(i => i.Key == key));
     }
 
     public override TimeSpan GetHashTtl(string key)
@@ -367,8 +367,8 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
         if (key == null) throw new ArgumentNullException(nameof(key));
 
         return
-            Storage.UseStatelessSession(wrapper =>
-                wrapper.Lists.Count(i => i.Key == key));
+            Storage.UseDbContext(dbContext =>
+                dbContext.Lists.Count(i => i.Key == key));
     }
 
     public override TimeSpan GetListTtl(string key)
@@ -382,9 +382,9 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
         if (name == null) throw new ArgumentNullException(nameof(name));
 
         return
-            Storage.UseStatelessSession(wrapper =>
-                wrapper.Hashes
-                    .Where(i => i.Key == key && i.Field == name)
+            Storage.UseDbContext(dbContext =>
+                dbContext.Hashes
+                    .Where(i => i.Key == key && i.Name == name)
                     .Select(i => i.Value)
                     .SingleOrDefault());
     }
@@ -392,10 +392,10 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
     public override List<string> GetRangeFromList(string key, int startingFrom, int endingAt)
     {
         if (key == null) throw new ArgumentNullException(nameof(key));
-        return Storage.UseStatelessSession(wrapper =>
+        return Storage.UseDbContext(dbContext =>
         {
             return
-                wrapper.Lists
+                dbContext.Lists
                     .OrderByDescending(i => i.Id)
                     .Where(i => i.Key == key)
                     .Select(i => i.Value)
@@ -409,10 +409,10 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
     {
         if (key == null) throw new ArgumentNullException(nameof(key));
 
-        return Storage.UseStatelessSession(wrapper =>
+        return Storage.UseDbContext(dbContext =>
         {
             return
-                wrapper.Lists
+                dbContext.Lists
                     .OrderByDescending(i => i.Id)
                     .Where(i => i.Key == key)
                     .Select(i => i.Value)
@@ -422,16 +422,16 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
         });
     }
 
-    private TimeSpan GetTTL<T>(string key) where T : class, IExpirableWithKey
+    private TimeSpan GetTTL<T>(string key) where T : EntityBase, IExpirableWithKey
     {
         if (key == null) throw new ArgumentNullException(nameof(key));
 
-        return Storage.UseStatelessSession(wrapper =>
+        return Storage.UseDbContext(dbContext =>
         {
-            var item = wrapper.Set<T>().Where(i => i.Key == key).Min(i => i.ExpireAt);
+            var item = dbContext.Set<T>().Where(i => i.Key == key).Min(i => i.ExpireAt);
             if (item == null) return TimeSpan.FromSeconds(-1);
 
-            return item.Value - Storage.UtcNow;
+            return item.Value.FromEpochDate() - Storage.UtcNow;
         });
     }
 
@@ -446,15 +446,15 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
         if (keyValuePairs == null) throw new ArgumentNullException(nameof(keyValuePairs));
         using (EntityFrameworkDistributedLock.Acquire(Storage, HashDistributedLockName, TimeSpan.FromSeconds(10)))
         {
-            Storage.UseDbContextInTransaction(wrapper =>
+            Storage.UseDbContextInTransaction(dbContext =>
             {
                 foreach (var keyValuePair in keyValuePairs)
-                    wrapper.UpsertEntity<_Hash>(i => i.Key == key && i.Field == keyValuePair.Key,
+                    dbContext.UpsertEntity<_Hash>(i => i.Key == key && i.Name == keyValuePair.Key,
                         i => { i.Value = keyValuePair.Value; },
                         i =>
                         {
                             i.Key = key;
-                            i.Field = keyValuePair.Key;
+                            i.Name = keyValuePair.Key;
                         });
             });
         }
@@ -464,11 +464,11 @@ public class EntityFrameworkJobStorageConnection : JobStorageConnection
     {
         if (key == null) throw new ArgumentNullException(nameof(key));
 
-        return Storage.UseStatelessSession(wrapper =>
+        return Storage.UseDbContext(dbContext =>
         {
-            var result = wrapper.Hashes
+            var result = dbContext.Hashes
                 .Where(i => i.Key == key)
-                .ToDictionary(i => i.Field, i => i.Value);
+                .ToDictionary(i => i.Name, i => i.Value);
             return result.Count != 0 ? result : null;
         });
     }

@@ -29,7 +29,7 @@ public class CountersAggregator : IBackgroundProcess, IServerComponent
         Execute(context.StoppedToken);
     }
 
-    private DateTime? MaxOfDateTimes(DateTime? a, DateTime? b)
+    private long? MaxOfDateTimes(long? a, long? b)
     {
         if (a == null) return b;
         if (b == null) return a;
@@ -43,9 +43,9 @@ public class CountersAggregator : IBackgroundProcess, IServerComponent
         long removedCount = 0;
         do
         {
-            _storage.UseDbContextInTransaction(wrapper =>
+            _storage.UseDbContextInTransaction(dbContext =>
             {
-                var counters = wrapper.Counters.Take(NumberOfRecordsInSinglePass).ToList();
+                var counters = dbContext.Counters.Take(NumberOfRecordsInSinglePass).ToList();
                 if (counters.Any())
                 {
                     var countersByName = counters.GroupBy(counter => counter.Key)
@@ -59,7 +59,7 @@ public class CountersAggregator : IBackgroundProcess, IServerComponent
                         .ToList();
 
                     foreach (var item in countersByName)
-                        wrapper.UpsertEntity<_AggregatedCounter>(i => i.Key == item.Key,
+                        dbContext.UpsertEntity<_AggregatedCounter>(i => i.Key == item.Key,
                             n =>
                             {
                                 n.ExpireAt = MaxOfDateTimes(n.ExpireAt, item.expireAt);
@@ -67,7 +67,7 @@ public class CountersAggregator : IBackgroundProcess, IServerComponent
                             }, n => { n.Key = item.Key; });
 
                     removedCount =
-                        wrapper.DeleteById<_Counter, int>(counters.Select(counter => counter.Id)
+                        dbContext.DeleteById<_Counter, int>(counters.Select(counter => counter.Id)
                             .ToArray());
                 }
             });

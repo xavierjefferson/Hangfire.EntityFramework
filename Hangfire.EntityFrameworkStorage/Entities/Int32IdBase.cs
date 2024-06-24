@@ -1,6 +1,8 @@
-﻿namespace Hangfire.EntityFrameworkStorage.Entities;
+﻿using Hangfire.EntityFrameworkStorage.Interfaces;
 
-public abstract class Int32IdBase : HFEntity, IInt32Id
+namespace Hangfire.EntityFrameworkStorage.Entities;
+
+public abstract class Int32IdBase : EntityBase, IInt32Id
 {
     public virtual int Id { get; set; }
 }

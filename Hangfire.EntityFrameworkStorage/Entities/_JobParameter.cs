@@ -1,4 +1,6 @@
-﻿namespace Hangfire.EntityFrameworkStorage.Entities;
+﻿using Hangfire.EntityFrameworkStorage.Interfaces;
+
+namespace Hangfire.EntityFrameworkStorage.Entities;
 
 public class _JobParameter : Int32IdBase, IJobChild
 {

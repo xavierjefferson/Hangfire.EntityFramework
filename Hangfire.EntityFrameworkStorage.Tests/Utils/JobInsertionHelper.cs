@@ -1,22 +1,22 @@
-using System;
 using Hangfire.EntityFrameworkStorage.Entities;
+using Hangfire.EntityFrameworkStorage.Extensions;
 
-namespace Hangfire.EntityFrameworkStorage.Tests
+namespace Hangfire.EntityFrameworkStorage.Tests;
+
+internal static class JobInsertionHelper
 {
-    internal static class JobInsertionHelper
+    public static _Job InsertNewJob(HangfireContext dbContext, Action<_Job>? action = null)
     {
-        public static _Job InsertNewJob(StatelessSessionWrapper session, Action<_Job> action = null)
+        var newJob = new _Job
         {
-            var newJob = new _Job
-            {
-                InvocationData = string.Empty,
-                Arguments = string.Empty,
-                CreatedAt = session.Storage.UtcNow
-            };
-            action?.Invoke(newJob);
-            session.Insert(newJob);
+            InvocationData = string.Empty,
+            Arguments = string.Empty,
+            CreatedAt = DateTime.UtcNow.ToEpochDate()
+        };
+        action?.Invoke(newJob);
+        dbContext.Add(newJob);
+        dbContext.SaveChanges();
 
-            return newJob;
-        }
+        return newJob;
     }
 }

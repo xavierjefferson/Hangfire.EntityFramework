@@ -2,7 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 // @ts-ignore: This will be removed from built files and is here to make the types available during dev work
-import { CookieJar } from "@types/tough-cookie";
 
 import { AbortError, HttpError, TimeoutError } from "./Errors";
 import { HttpClient, HttpRequest, HttpResponse } from "./HttpClient";
@@ -48,7 +47,7 @@ export class FetchHttpClient extends HttpClient {
     }
 
     /** @inheritDoc */
-    public async send(request: HttpRequest): Promise<HttpResponse> {
+    async send(request: HttpRequest): Promise<HttpResponse> {
         // Check that abort was not signaled before calling send
         if (request.abortSignal && request.abortSignal.aborted) {
             throw new AbortError();
@@ -78,28 +77,30 @@ export class FetchHttpClient extends HttpClient {
         if (request.timeout) {
             const msTimeout = request.timeout!;
             timeoutId = setTimeout(() => {
-                abortController.abort();
-                this._logger.log(LogLevel.Warning, `Timeout from HTTP request.`);
-                error = new TimeoutError();
-            }, msTimeout);
+                    abortController.abort();
+                    this._logger.log(LogLevel.Warning, `Timeout from HTTP request.`);
+                    error = new TimeoutError();
+                },
+                msTimeout);
         }
 
         let response: Response;
         try {
-            response = await this._fetchType(request.url!, {
-                body: request.content!,
-                cache: "no-cache",
-                credentials: request.withCredentials === true ? "include" : "same-origin",
-                headers: {
-                    "Content-Type": "text/plain;charset=UTF-8",
-                    "X-Requested-With": "XMLHttpRequest",
-                    ...request.headers,
-                },
-                method: request.method!,
-                mode: "cors",
-                redirect: "follow",
-                signal: abortController.signal,
-            });
+            response = await this._fetchType(request.url!,
+                {
+                    body: request.content!,
+                    cache: "no-cache",
+                    credentials: request.withCredentials === true ? "include" : "same-origin",
+                    headers: {
+                        "Content-Type": "text/plain;charset=UTF-8",
+                        "X-Requested-With": "XMLHttpRequest",
+                        ...request.headers,
+                    },
+                    method: request.method!,
+                    mode: "cors",
+                    redirect: "follow",
+                    signal: abortController.signal,
+                });
         } catch (e) {
             if (error) {
                 throw error;
@@ -133,8 +134,8 @@ export class FetchHttpClient extends HttpClient {
         );
     }
 
-    public getCookieString(url: string): string {
-        let cookies: string = "";
+    getCookieString(url: string): string {
+        let cookies = "";
         if (Platform.isNode && this._jar) {
             // @ts-ignore: unused variable
             this._jar.getCookies(url, (e, c) => cookies = c.join("; "));
@@ -143,22 +144,23 @@ export class FetchHttpClient extends HttpClient {
     }
 }
 
-function deserializeContent(response: Response, responseType?: XMLHttpRequestResponseType): Promise<string | ArrayBuffer> {
+function deserializeContent(response: Response, responseType?: XMLHttpRequestResponseType):
+    Promise<string | ArrayBuffer> {
     let content;
     switch (responseType) {
-        case "arraybuffer":
-            content = response.arrayBuffer();
-            break;
-        case "text":
-            content = response.text();
-            break;
-        case "blob":
-        case "document":
-        case "json":
-            throw new Error(`${responseType} is not supported.`);
-        default:
-            content = response.text();
-            break;
+    case "arraybuffer":
+        content = response.arrayBuffer();
+        break;
+    case "text":
+        content = response.text();
+        break;
+    case "blob":
+    case "document":
+    case "json":
+        throw new Error(`${responseType} is not supported.`);
+    default:
+        content = response.text();
+        break;
     }
 
     return content;

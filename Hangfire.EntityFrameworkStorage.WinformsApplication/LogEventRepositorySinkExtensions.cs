@@ -1,14 +1,13 @@
 ﻿using Serilog;
 using Serilog.Configuration;
 
-namespace Hangfire.EntityFrameworkStorage.WinformsApplication
+namespace Hangfire.EntityFrameworkStorage.WinformsApplication;
+
+public static class LogEventRepositorySinkExtensions
 {
-    public static class LogEventRepositorySinkExtensions
+    public static LoggerConfiguration LogEventRepositorySink(
+        this LoggerSinkConfiguration loggerConfiguration, ILogEventEmitterService logEventEmitterService)
     {
-        public static LoggerConfiguration LogEventRepositorySink(
-            this LoggerSinkConfiguration loggerConfiguration, ILogEventEmitterService logEventEmitterService)
-        {
-            return loggerConfiguration.Sink(logEventEmitterService);
-        }
+        return loggerConfiguration.Sink(logEventEmitterService);
     }
 }

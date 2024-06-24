@@ -1,99 +1,102 @@
-﻿using System;
-using System.Linq;
-using Hangfire.EntityFrameworkStorage.JobQueue;
+﻿using Hangfire.EntityFrameworkStorage.JobQueue;
 using Moq;
 using Xunit;
 
-namespace Hangfire.EntityFrameworkStorage.Tests.Base.JobQueue
+namespace Hangfire.EntityFrameworkStorage.Tests.Base.JobQueue;
+
+public abstract class PersistentJobQueueProviderCollectionTests
 {
-    public class PersistentJobQueueProviderCollectionTests
+    private static readonly string[] _queues = { "default", "critical" };
+    private readonly Mock<IPersistentJobQueueProvider> _defaultProvider;
+    private readonly Mock<IPersistentJobQueueProvider> _provider;
+
+    public PersistentJobQueueProviderCollectionTests()
     {
-        public PersistentJobQueueProviderCollectionTests()
-        {
-            _defaultProvider = new Mock<IPersistentJobQueueProvider>();
-            _provider = new Mock<IPersistentJobQueueProvider>();
-        }
+        _defaultProvider = new Mock<IPersistentJobQueueProvider>();
+        _provider = new Mock<IPersistentJobQueueProvider>();
+    }
 
-        private static readonly string[] _queues = {"default", "critical"};
-        private readonly Mock<IPersistentJobQueueProvider> _defaultProvider;
-        private readonly Mock<IPersistentJobQueueProvider> _provider;
+    private PersistentJobQueueProviderCollection CreateCollection()
+    {
+        return new PersistentJobQueueProviderCollection(_defaultProvider.Object);
+    }
 
-        private PersistentJobQueueProviderCollection CreateCollection()
-        {
-            return new PersistentJobQueueProviderCollection(_defaultProvider.Object);
-        }
+    [Fact]
+    public async Task Add_ThrowsAnException_WhenProviderIsNull()
+    {
+        await Task.CompletedTask;
+        var collection = CreateCollection();
 
-        [Fact]
-        public void Add_ThrowsAnException_WhenProviderIsNull()
-        {
-            var collection = CreateCollection();
+        var exception = Assert.Throws<ArgumentNullException>(
+            () => collection.Add(null, _queues));
 
-            var exception = Assert.Throws<ArgumentNullException>(
-                () => collection.Add(null, _queues));
+        Assert.Equal("provider", exception.ParamName);
+    }
 
-            Assert.Equal("provider", exception.ParamName);
-        }
+    [Fact]
+    public async Task Add_ThrowsAnException_WhenQueuesCollectionIsNull()
+    {
+        await Task.CompletedTask;
+        var collection = CreateCollection();
 
-        [Fact]
-        public void Add_ThrowsAnException_WhenQueuesCollectionIsNull()
-        {
-            var collection = CreateCollection();
+        var exception = Assert.Throws<ArgumentNullException>(
+            () => collection.Add(_provider.Object, null));
 
-            var exception = Assert.Throws<ArgumentNullException>(
-                () => collection.Add(_provider.Object, null));
+        Assert.Equal("queues", exception.ParamName);
+    }
 
-            Assert.Equal("queues", exception.ParamName);
-        }
+    [Fact]
+    public async Task Ctor_ThrowsAnException_WhenDefaultProviderIsNull()
+    {
+        await Task.CompletedTask;
+        Assert.Throws<ArgumentNullException>(
+            () => new PersistentJobQueueProviderCollection(null));
+    }
 
-        [Fact]
-        public void Ctor_ThrowsAnException_WhenDefaultProviderIsNull()
-        {
-            Assert.Throws<ArgumentNullException>(
-                () => new PersistentJobQueueProviderCollection(null));
-        }
+    [Fact]
+    public async Task Enumeration_ContainsAddedProvider()
+    {
+        await Task.CompletedTask;
+        var collection = CreateCollection();
 
-        [Fact]
-        public void Enumeration_ContainsAddedProvider()
-        {
-            var collection = CreateCollection();
+        collection.Add(_provider.Object, _queues);
 
-            collection.Add(_provider.Object, _queues);
+        Assert.Contains(_provider.Object, collection);
+    }
 
-            Assert.Contains(_provider.Object, collection);
-        }
+    [Fact]
+    public async Task Enumeration_IncludesTheDefaultProvider()
+    {
+        var collection = CreateCollection();
 
-        [Fact]
-        public void Enumeration_IncludesTheDefaultProvider()
-        {
-            var collection = CreateCollection();
+        var result = collection.ToArray();
 
-            var result = collection.ToArray();
+        Assert.Single(result);
+        Assert.Same(_defaultProvider.Object, result[0]);
+    }
 
-            Assert.Single(result);
-            Assert.Same(_defaultProvider.Object, result[0]);
-        }
+    [Fact]
+    public async Task GetProvider_CanBeResolved_ByAnyQueue()
+    {
+        await Task.CompletedTask;
+        var collection = CreateCollection();
+        collection.Add(_provider.Object, _queues);
 
-        [Fact]
-        public void GetProvider_CanBeResolved_ByAnyQueue()
-        {
-            var collection = CreateCollection();
-            collection.Add(_provider.Object, _queues);
+        var provider1 = collection.GetProvider("default");
+        var provider2 = collection.GetProvider("critical");
 
-            var provider1 = collection.GetProvider("default");
-            var provider2 = collection.GetProvider("critical");
+        Assert.NotSame(_defaultProvider.Object, provider1);
+        Assert.Same(provider1, provider2);
+    }
 
-            Assert.NotSame(_defaultProvider.Object, provider1);
-            Assert.Same(provider1, provider2);
-        }
+    [Fact]
+    public async Task GetProvider_ReturnsTheDefaultProvider_WhenProviderCanNotBeResolvedByQueue()
+    {
+        await Task.CompletedTask;
+        var collection = CreateCollection();
 
-        [Fact]
-        public void GetProvider_ReturnsTheDefaultProvider_WhenProviderCanNotBeResolvedByQueue()
-        {
-            var collection = CreateCollection();
+        var provider = collection.GetProvider("queue");
 
-            var provider = collection.GetProvider("queue");
-
-            Assert.Same(_defaultProvider.Object, provider);
-        }
+        Assert.Same(_defaultProvider.Object, provider);
     }
 }

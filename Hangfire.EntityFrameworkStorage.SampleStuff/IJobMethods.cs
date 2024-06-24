@@ -1,10 +1,9 @@
 ﻿using System;
 
-namespace Hangfire.EntityFrameworkStorage.SampleStuff
+namespace Hangfire.EntityFrameworkStorage.SampleStuff;
+
+public interface IJobMethods
 {
-    public interface IJobMethods
-    {
-        void WriteSomething(string id, int currentCounter, int stage, int stages);
-        void HelloWorld(string id, DateTime whenQueued, TimeSpan interval);
-    }
+    void WriteSomething(string id, int currentCounter, int stage, int stages);
+    void HelloWorld(string id, DateTime whenQueued, TimeSpan interval);
 }

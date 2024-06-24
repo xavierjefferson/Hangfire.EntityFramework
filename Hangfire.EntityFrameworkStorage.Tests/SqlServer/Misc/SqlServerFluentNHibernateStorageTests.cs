@@ -1,13 +1,13 @@
 using Hangfire.EntityFrameworkStorage.Tests.Base.Misc;
 using Hangfire.EntityFrameworkStorage.Tests.SqlServer.Fixtures;
+using Xunit;
 
-namespace Hangfire.EntityFrameworkStorage.Tests.SqlServer.Misc
+namespace Hangfire.EntityFrameworkStorage.Tests.SqlServer.Misc;
+
+[Collection(Constants.SqlServerFixtureCollectionName)]
+public class SqlServerEntityFrameworkStorageTests : EntityFrameworkStorageTests
 {
-    [Xunit.Collection(Constants.SqlServerFixtureCollectionName)]
-    public class SqlServerEntityFrameworkStorageTests : EntityFrameworkStorageTests
+    public SqlServerEntityFrameworkStorageTests(SqlServerTestDatabaseFixture fixture) : base(fixture)
     {
-        public SqlServerEntityFrameworkStorageTests(SqlServerTestDatabaseFixture fixture) : base(fixture)
-        {
-        }
     }
 }

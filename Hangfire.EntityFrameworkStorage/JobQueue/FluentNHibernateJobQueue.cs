@@ -24,7 +24,7 @@ public class EntityFrameworkJobQueue : IPersistentJobQueue
     public IFetchedJob Dequeue(string[] queues, CancellationToken cancellationToken)
     {
         if (queues == null) throw new ArgumentNullException(nameof(queues));
-        if (queues.Length == 0) throw new ArgumentException("Queue array must be non-empty.", "queues");
+        if (queues.Length == 0) throw new ArgumentException("Queue array must be non-empty.", nameof(queues));
         Logger.Debug("Attempting to dequeue");
 
         EntityFrameworkFetchedJob fetchedJob = null;
@@ -35,13 +35,13 @@ public class EntityFrameworkJobQueue : IPersistentJobQueue
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                var fluentNHibernateDistributedLock = EntityFrameworkDistributedLock.Acquire(_storage, "JobQueue",
+                var myLock = EntityFrameworkDistributedLock.Acquire(_storage, "JobQueue",
                     _storage.Options.JobQueueDistributedLockTimeout);
-                using (fluentNHibernateDistributedLock)
+                using (myLock)
                 {
                     fetchedJob = SqlUtil.WrapForTransaction(() =>
                     {
-                        return _storage.UseDbContextInTransaction(wrapper =>
+                        return _storage.UseDbContextInTransaction(dbContext =>
                         {
                             var jobQueueFetchedAt = _storage.UtcNow;
 
@@ -50,17 +50,17 @@ public class EntityFrameworkJobQueue : IPersistentJobQueue
                                 Logger.Debug(string.Format("Getting jobs where {0}=null or {0}<{1}",
                                     nameof(_JobQueue.FetchedAt), cutoff));
 
-                            var jobQueue = wrapper.JobQueues.Include(i => i.Job)
+                            var jobQueue = dbContext.JobQueues.Include(i => i.Job).OrderBy(i => i.Id)
                                 .FirstOrDefault(i =>
                                     (i.FetchedAt == null
-                                     || i.FetchedAt < cutoff) && queues.Contains(i.Queue));
+                                     || i.FetchedAt < cutoff.ToEpochDate()) && queues.Contains(i.Queue));
                             if (jobQueue != null)
                             {
                                 jobQueue.FetchToken = Guid.NewGuid().ToString();
-                                jobQueue.FetchedAt = jobQueueFetchedAt;
+                                jobQueue.FetchedAt = jobQueueFetchedAt.ToEpochDate();
 
-                                wrapper.Update(jobQueue);
-                                wrapper.SaveChanges();
+                                dbContext.Update(jobQueue);
+                                dbContext.SaveChanges();
 
                                 Logger.DebugFormat("Dequeued job id {0} from queue {1}",
                                     jobQueue.Job.Id,
@@ -93,14 +93,14 @@ public class EntityFrameworkJobQueue : IPersistentJobQueue
         return fetchedJob;
     }
 
-    public void Enqueue(HangfireContext wrapper, string queue, string jobId)
+    public void Enqueue(HangfireContext dbContext, string queue, string jobId)
     {
-        wrapper.Add(new _JobQueue
+        dbContext.Add(new _JobQueue
         {
-            Job = wrapper.Jobs.SingleOrDefault(i => i.Id == jobId),
+            Job = dbContext.Jobs.SingleOrDefault(i => i.Id == jobId),
             Queue = queue
         });
-
+        dbContext.SaveChanges();
         Logger.DebugFormat("Enqueued JobId={0} Queue={1}", jobId, queue);
     }
 }

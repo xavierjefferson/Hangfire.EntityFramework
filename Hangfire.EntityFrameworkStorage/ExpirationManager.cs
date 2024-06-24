@@ -5,6 +5,7 @@ using System.Threading;
 using Hangfire.Common;
 using Hangfire.EntityFrameworkStorage.Entities;
 using Hangfire.EntityFrameworkStorage.Extensions;
+using Hangfire.EntityFrameworkStorage.Interfaces;
 using Hangfire.Logging;
 using Hangfire.Server;
 using Hangfire.Storage;
@@ -82,14 +83,14 @@ public class ExpirationManager : IBackgroundProcess, IServerComponent
     {
         WithLock(deletionArgs, nameof(_DistributedLock), () =>
         {
-            return DeleteEntities<_DistributedLock>((wrapper, cutoff) =>
+            return DeleteEntities<_DistributedLock>((dbContext, cutoff) =>
             {
                 var unixDate = cutoff.ToEpochDate();
-                var idList = wrapper.DistributedLocks
-                    .Where(i => i.ExpireAtAsLong < unixDate).Take(deletionArgs.NumberOfRecordsInSinglePass)
+                var idList = dbContext.DistributedLocks
+                    .Where(i => i.ExpireAt < unixDate).Take(deletionArgs.NumberOfRecordsInSinglePass)
                     .Select(i => i.Id)
                     .ToList();
-                return wrapper.DeleteById<_DistributedLock, int>(idList);
+                return dbContext.DeleteById<_DistributedLock, int>(idList);
             });
         });
     }
@@ -131,33 +132,33 @@ public class ExpirationManager : IBackgroundProcess, IServerComponent
         return GetType().ToString();
     }
 #pragma warning restore 618
-    private void DeleteJobDetailEntityWithIntId<T>(DeletionArgs info) where T : HFEntity, IJobChild, IInt32Id
+    private void DeleteJobDetailEntityWithIntId<T>(DeletionArgs info) where T : EntityBase, IJobChild, IInt32Id
 
     {
-        DeleteEntities<T>((wrapper, cutoff) =>
+        DeleteEntities<T>((dbContext, cutoff) =>
         {
-            var idList = wrapper.Set<T>().Where(i => i.Job.ExpireAt < cutoff)
+            var idList = dbContext.Set<T>().Where(i => i.Job.ExpireAt < cutoff.ToEpochDate())
                 .Take(info.NumberOfRecordsInSinglePass)
                 .Select(i => i.Id)
                 .ToList();
-            return wrapper.DeleteById<T, int>(idList);
+            return dbContext.DeleteById<T, int>(idList);
         });
     }
 
-    private long DeleteExpirableEntity<T, U>(DeletionArgs info) where T : HFEntity, IExpirable, IWithID<U>
+    private long DeleteExpirableEntity<T, U>(DeletionArgs info) where T : EntityBase, IExpirable, IWithID<U>
     {
-        return DeleteEntities<T>((wrapper, cutoff) =>
+        return DeleteEntities<T>((dbContext, cutoff) =>
         {
-            var ids = wrapper.Set<T>()
-                .Where(i => i.ExpireAt < cutoff).Take(info.NumberOfRecordsInSinglePass)
+            var ids = dbContext.Set<T>()
+                .Where(i => i.ExpireAt < cutoff.ToEpochDate()).Take(info.NumberOfRecordsInSinglePass)
                 .Select(i => i.Id)
                 .ToList();
-            return wrapper.DeleteById<T, U>(ids);
+            return dbContext.DeleteById<T, U>(ids);
         });
     }
 
     private void DeleteExpirableEntityWithLock<T>(DeletionArgs deletionArgs)
-        where T : HFEntity, IExpirableWithId
+        where T : EntityBase, IExpirableWithId
     {
         WithLock(deletionArgs, typeof(T).Name,
             () => DeleteExpirableEntity<T, int>(deletionArgs));
@@ -170,7 +171,7 @@ public class ExpirationManager : IBackgroundProcess, IServerComponent
             try
             {
                 using (EntityFrameworkDistributedLock.Acquire(Storage,
-                           string.Format("{0}:{1}", DistributedLockKey, subKey),
+                           $"{DistributedLockKey}:{subKey}",
                            DefaultLockTimeout,
                            args.CancellationToken))
                 {
@@ -187,12 +188,12 @@ public class ExpirationManager : IBackgroundProcess, IServerComponent
         }
     }
 
-    public long DeleteEntities<T>(Func<HangfireContext, DateTime, long> deleteFunc) where T : HFEntity
+    public long DeleteEntities<T>(Func<HangfireContext, DateTime, long> deleteFunc) where T : EntityBase
 
     {
         var entityName = typeof(T).Name;
         Logger.DebugFormat("Removing expired rows from table '{0}'", entityName);
-        return Storage.UseStatelessSession(dbContext =>
+        return Storage.UseDbContext(dbContext =>
         {
             var removedCount = deleteFunc(dbContext, Storage.UtcNow);
             Logger.DebugFormat("Removed {0} expired rows from table '{1}'", removedCount,

@@ -40,10 +40,10 @@ public class EntityFrameworkFetchedJob : IFetchedJob
     public void RemoveFromQueue()
     {
         Logger.DebugFormat("RemoveFromQueue JobId={0}", JobId);
-        _storage.UseStatelessSession(wrapper =>
+        _storage.UseDbContext(dbContext =>
         {
-            wrapper.JobQueues.RemoveRange(wrapper.JobQueues.Where(i => i.Id == _id));
-            wrapper.SaveChanges();
+            dbContext.JobQueues.RemoveRange(dbContext.JobQueues.Where(i => i.Id == _id));
+            dbContext.SaveChanges();
         });
 
         _removedFromQueue = true;
@@ -52,14 +52,14 @@ public class EntityFrameworkFetchedJob : IFetchedJob
     public void Requeue()
     {
         Logger.DebugFormat("Requeue JobId={0}", JobId);
-        _storage.UseStatelessSession(wrapper =>
+        _storage.UseDbContext(dbContext =>
         {
-            var tmp = wrapper.JobQueues.FirstOrDefault(i => i.Id == _id);
+            var tmp = dbContext.JobQueues.FirstOrDefault(i => i.Id == _id);
             if (tmp != null)
             {
                 tmp.FetchedAt = null;
-                wrapper.Update(tmp);
-                wrapper.SaveChanges();
+                dbContext.Update(tmp);
+                dbContext.SaveChanges();
             }
         });
 

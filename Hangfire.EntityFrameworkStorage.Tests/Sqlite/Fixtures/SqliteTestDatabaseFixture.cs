@@ -1,60 +1,65 @@
 ﻿using System.Data.SQLite;
-using System.IO;
-using System.Threading;
 using Hangfire.EntityFrameworkStorage.Tests.Base.Fixtures;
-using Snork.EntityFrameworkTools;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
-namespace Hangfire.EntityFrameworkStorage.Tests.Sqlite.Fixtures
+namespace Hangfire.EntityFrameworkStorage.Tests.Sqlite.Fixtures;
+
+public class SqliteTestDatabaseFixture : DatabaseFixtureBase
 {
-    public class SqliteTestDatabaseFixture : DatabaseFixtureBase
+    private static readonly object GlobalLock = new();
+    private static DirectoryInfo _testFolder;
+
+    public SqliteTestDatabaseFixture()
     {
-        private static readonly object GlobalLock = new object();
-        private static DirectoryInfo _testFolder;
+        _testFolder = new DirectoryInfo(GetTempPath());
+        _testFolder.Create();
+        Monitor.Enter(GlobalLock);
+        CreateDatabase();
+    }
 
-        public SqliteTestDatabaseFixture()
+    public override Action<DbContextOptionsBuilder> DbContextOptionsBuilderAction
+    {
+        get { return i =>
         {
-            _testFolder = new DirectoryInfo(GetTempPath());
-            _testFolder.Create();
-            Monitor.Enter(GlobalLock);
-            CreateDatabase();
-        }
+            i.UseSqlite(GetConnectionString());
+            i.ConfigureWarnings(x => x.Ignore(RelationalEventId.AmbientTransactionWarning));
+        }; }
+    }
 
-        public override ProviderTypeEnum ProviderType => ProviderTypeEnum.SQLite;
+    public override void Cleanup()
+    {
+        try
 
-        public override void Cleanup()
         {
-            try
-
-            {
-                DeleteFolder(_testFolder);
-            }
-            catch
-            {
-            }
+            DeleteFolder(_testFolder);
         }
-
-        public override string GetConnectionString()
+        catch
         {
-            var databaseFileName = GetDatabaseFileName();
-            return $"Data Source={databaseFileName};Version=3";
         }
+    }
 
-        public override void OnDispose()
-        {
-            Monitor.Exit(GlobalLock);
-            Cleanup();
-        }
+    public override string GetConnectionString()
+    {
+        var databaseFileName = GetDatabaseFileName();
+        return $"Data Source={databaseFileName};";
+    }
 
-        public override void CreateDatabase()
-        {
-            var databaseFileName = GetDatabaseFileName();
-            if (!File.Exists(databaseFileName)) SQLiteConnection.CreateFile(databaseFileName);
-        }
+    public override void OnDispose()
+    {
+        Monitor.Exit(GlobalLock);
+        Cleanup();
+    }
+
+    public override void CreateDatabase()
+    {
+        var databaseFileName = GetDatabaseFileName();
+        if (!File.Exists(databaseFileName)) SQLiteConnection.CreateFile(databaseFileName);
+    }
 
 
-        private string GetDatabaseFileName()
-        {
-            return Path.Combine(_testFolder.FullName, "database.sqlite");
-        }
+    private string GetDatabaseFileName()
+    {
+        return Path.Combine(_testFolder.FullName, "database.sqlite");
     }
 }

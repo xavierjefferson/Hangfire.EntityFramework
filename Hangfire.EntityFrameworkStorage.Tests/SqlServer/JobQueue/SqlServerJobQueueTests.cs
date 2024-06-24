@@ -1,15 +1,15 @@
 ﻿using Hangfire.EntityFrameworkStorage.Tests.Base.JobQueue;
 using Hangfire.EntityFrameworkStorage.Tests.Base.Misc;
 using Hangfire.EntityFrameworkStorage.Tests.SqlServer.Fixtures;
+using Xunit;
 
-namespace Hangfire.EntityFrameworkStorage.Tests.SqlServer.JobQueue
+namespace Hangfire.EntityFrameworkStorage.Tests.SqlServer.JobQueue;
+
+[Collection(Constants.SqlServerFixtureCollectionName)]
+public class
+    SqlServerJobQueueTests : JobQueueTestsBase
 {
-    [Xunit.Collection(Constants.SqlServerFixtureCollectionName)]
-    public class
-        SqlServerJobQueueTests : JobQueueTestsBase
+    public SqlServerJobQueueTests(SqlServerTestDatabaseFixture fixture) : base(fixture)
     {
-        public SqlServerJobQueueTests(SqlServerTestDatabaseFixture fixture) : base(fixture)
-        {
-        }
     }
 }
