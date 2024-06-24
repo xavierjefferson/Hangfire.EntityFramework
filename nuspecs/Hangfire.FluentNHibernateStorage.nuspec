@@ -2,12 +2,12 @@
 
 <package>
 	<metadata>
-		<id>Hangfire.FluentNHibernateStorage</id>
+		<id>Hangfire.EntityFrameworkStorage</id>
 		<version>1.7.30</version>
 		<authors>Xavier Jefferson</authors>
 		<owners>XavierJefferson</owners>
 		<licenseUrl>https://www.gnu.org/licenses/lgpl-3.0.en.html</licenseUrl>
-		<projectUrl>https://github.com/xavierjefferson/Hangfire.FluentNHibernateStorage</projectUrl>
+		<projectUrl>https://github.com/xavierjefferson/Hangfire.EntityFrameworkStorage</projectUrl>
 		<!--<iconUrl>http://ICON_URL_HERE_OR_DELETE_THIS_LINE</iconUrl>-->
 		<requireLicenseAcceptance>false</requireLicenseAcceptance>
 		<description>A Hangfire storage provider for SQL Server, MySQL, Oracle, DB/2, PostgreSQL, and Firebird</description>
@@ -26,8 +26,8 @@
 
 	</metadata>
 	<files>
-		<file src="..\Hangfire.FluentNHibernateStorage\bin\release\netstandard2.0\Hangfire.FluentNHibernateStorage.dll"
+		<file src="..\Hangfire.EntityFrameworkStorage\bin\release\netstandard2.0\Hangfire.EntityFrameworkStorage.dll"
 		      target="lib\netstandard2.0" />
-		<file src="..\Hangfire.FluentNHibernateStorage\**\*.cs;" target="src" exclude="**\obj*\**\*.cs" />
+		<file src="..\Hangfire.EntityFrameworkStorage\**\*.cs;" target="src" exclude="**\obj*\**\*.cs" />
 	</files>
 </package>

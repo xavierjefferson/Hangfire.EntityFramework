@@ -1,19 +1,19 @@
-﻿# Hangfire FluentNHibernate Storage - An Implementation for MS SQL Server, MySQL, PostgreSQL, Oracle, Firebird, and DB/2
-[![Latest version](https://img.shields.io/nuget/v/Hangfire.FluentNHibernateStorage.svg)](https://www.nuget.org/packages/Hangfire.FluentNHibernateStorage/) 
+﻿# Hangfire EntityFramework Storage - An Implementation for MS SQL Server, MySQL, PostgreSQL, Oracle, Firebird, and DB/2
+[![Latest version](https://img.shields.io/nuget/v/Hangfire.EntityFrameworkStorage.svg)](https://www.nuget.org/packages/Hangfire.EntityFrameworkStorage/) 
 
-FluentNHibernate storage implementation of [Hangfire](http://hangfire.io/) - fire-and-forget, delayed and recurring tasks runner for .NET. Scalable and reliable background job runner. Supports multiple servers, CPU and I/O intensive, long-running and short-running jobs.
+EntityFramework storage implementation of [Hangfire](http://hangfire.io/) - fire-and-forget, delayed and recurring tasks runner for .NET. Scalable and reliable background job runner. Supports multiple servers, CPU and I/O intensive, long-running and short-running jobs.
 
 Forked from [Hangfire.MySqlStorage](https://github.com/arnoldasgudas/Hangfire.MySqlStorage), this is an NHibernate-backed implementation of a Hangfire storage provider that supports MS SQL Server, MySQL, PostgreSQL, Oracle, Firebird, and DB/2.  When deployed in a Hangfire instance, this library will automatically generate tables required for storing Hangfire metadata, and pass the correct SQL flavor to the database transparently.  The intention of doing an implementation like this one is to be able to share tentative improvements with a broad audience of developers.
 
-FluentNHibernate / NHibernate enthusiasts may note that while NHibernate supports the SQLite, MS Access (Jet), and SQL Server Compact Edition desktop databases, none of these proved to work, and there's no plan to support them.
+EntityFramework / NHibernate enthusiasts may note that while NHibernate supports the SQLite, MS Access (Jet), and SQL Server Compact Edition desktop databases, none of these proved to work, and there's no plan to support them.
 
 ## Installation
 
 
-Run the following command in the NuGet Package Manager console to install Hangfire.FluentNHibernateStorage:
+Run the following command in the NuGet Package Manager console to install Hangfire.EntityFrameworkStorage:
 
 ```
-Install-Package Hangfire.FluentNHibernateStorage
+Install-Package Hangfire.EntityFrameworkStorage
 ```
 
 You will need to install an [additional driver package](DriverPackage.md) for all RDBMS systems except SQL Server.
@@ -46,7 +46,7 @@ The package includes an enumeration of database providers AND their specific fla
         OracleClient9Managed = 18,
     }
 ```
-The enumeration values correspond to the list of providers NHibernate supports.  When you instantiate a provider, you'll pass the best enumeration value to the FluentNHibernateStorageFactory.For method, along with your connection string.  I wrote it this way so you don't have to be concerned with the underlying implementation details for the various providers, which can be a little messy.  
+The enumeration values correspond to the list of providers NHibernate supports.  When you instantiate a provider, you'll pass the best enumeration value to the EntityFrameworkStorageFactory.For method, along with your connection string.  I wrote it this way so you don't have to be concerned with the underlying implementation details for the various providers, which can be a little messy.  
 
 ### MS Sql Server
 You'll note that four versions of SQL Server are in the enumeration, and these directly correlate to NHibernate's built-in storage provider set.  This implementation was tested against only MS Sql Server 2012 and 2008.  If you're using MS SQL Server 2000 (*and I sincerely hope you're not*), you may have a rough time because the database does not support strings longer than 8000 characters.
@@ -72,7 +72,7 @@ I may simplify the implementation later, but I think this code is pretty painles
         public void Configuration(IAppBuilder app)
         {
             //Configure properties (this is optional)
-            var options = new FluentNHibernateStorageOptions
+            var options = new EntityFrameworkStorageOptions
             {
                 TransactionIsolationLevel = IsolationLevel.Serializable,
                 QueuePollInterval = TimeSpan.FromSeconds(15),
@@ -89,7 +89,7 @@ I may simplify the implementation later, but I think this code is pretty painles
             //THIS SECTION GETS THE STORAGE PROVIDER.  CHANGE THE ENUM VALUE ON THE NEXT LINE FOR
             //YOUR PARTICULAR RDBMS
 
-            var storage = FluentNHibernateStorageFactory.For(ProviderTypeEnum.MySQL, "MyConnectionStringHere", options);
+            var storage = EntityFrameworkStorageFactory.For(ProviderTypeEnum.MySQL, "MyConnectionStringHere", options);
 
             GlobalConfiguration.Configuration.UseStorage(storage);
 
@@ -102,9 +102,9 @@ I may simplify the implementation later, but I think this code is pretty painles
 using System;
 using System.Configuration;
 using System.Transactions;
-using Hangfire.FluentNHibernateStorage;
+using Hangfire.EntityFrameworkStorage;
 
-namespace Hangfire.FluentNHibernate.SampleApplication
+namespace Hangfire.EntityFrameworkStorage.SampleApplication
 {
     public class DemoClass
     {
@@ -113,7 +113,7 @@ namespace Hangfire.FluentNHibernate.SampleApplication
         private static void Main(string[] args)
         {
             //Configure properties (this is optional)
-            var options = new FluentNHibernateStorageOptions
+            var options = new EntityFrameworkStorageOptions
             {
                 TransactionIsolationLevel = IsolationLevel.Serializable,
                 QueuePollInterval = TimeSpan.FromSeconds(15),
@@ -132,7 +132,7 @@ namespace Hangfire.FluentNHibernate.SampleApplication
 
             var PersistenceConfigurerType = ProviderTypeEnum.MsSql2012;
             var connectionString = ConfigurationManager.ConnectionStrings["someConnectionString"].ConnectionString;
-            var storage = FluentNHibernateStorageFactory.For(PersistenceConfigurerType, connectionString, options);
+            var storage = EntityFrameworkStorageFactory.For(PersistenceConfigurerType, connectionString, options);
 
             //THIS LINE CONFIGURES HANGFIRE WITH THE STORAGE PROVIDER
             GlobalConfiguration.Configuration.UseStorage(storage);
@@ -186,7 +186,7 @@ In order to run unit tests and integrational tests set the following variables i
 
 `Hangfire_SqlServer_ConnectionStringTemplate` (default: `server=127.0.0.1;uid=root;pwd=root;database={0};Allow User Variables=True`)
 
-`Hangfire_SqlServer_DatabaseName` (default: `Hangfire.FluentNHibernate.Tests`)
+`Hangfire_SqlServer_DatabaseName` (default: `Hangfire.EntityFrameworkStorage.Tests`)
 
 # Database Stuff
 
