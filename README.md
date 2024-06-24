@@ -1,11 +1,10 @@
-﻿# Hangfire EntityFramework Storage - An Implementation for MS SQL Server, MySQL, PostgreSQL, Oracle, Firebird, and DB/2
+﻿
+﻿# Hangfire EntityFramework Storage - A generic implementation for Entity Framework Core Providers
 [![Latest version](https://img.shields.io/nuget/v/Hangfire.EntityFrameworkStorage.svg)](https://www.nuget.org/packages/Hangfire.EntityFrameworkStorage/) 
 
-EntityFramework storage implementation of [Hangfire](http://hangfire.io/) - fire-and-forget, delayed and recurring tasks runner for .NET. Scalable and reliable background job runner. Supports multiple servers, CPU and I/O intensive, long-running and short-running jobs.
+EntityFrameworkCore storage implementation of [Hangfire](http://hangfire.io/) - fire-and-forget, delayed and recurring tasks runner for .NET. Scalable and reliable background job runner. Supports multiple servers, CPU and I/O intensive, long-running and short-running jobs.
 
-Forked from [Hangfire.MySqlStorage](https://github.com/arnoldasgudas/Hangfire.MySqlStorage), this is an NHibernate-backed implementation of a Hangfire storage provider that supports MS SQL Server, MySQL, PostgreSQL, Oracle, Firebird, and DB/2.  When deployed in a Hangfire instance, this library will automatically generate tables required for storing Hangfire metadata, and pass the correct SQL flavor to the database transparently.  The intention of doing an implementation like this one is to be able to share tentative improvements with a broad audience of developers.
-
-EntityFramework / NHibernate enthusiasts may note that while NHibernate supports the SQLite, MS Access (Jet), and SQL Server Compact Edition desktop databases, none of these proved to work, and there's no plan to support them.
+Forked from [Hangfire.FluentNHibernateStores](https://github.com/xavierjefferson/Hangfire.FluentNHibernateStorage), this is an EntityFrameworkCore-backed implementation of a Hangfire storage provider that supports the several providers for Entity Framework Core 6.0 and up.  When deployed in a Hangfire instance, this library will automatically generate tables required for storing Hangfire metadata, and pass the correct SQL flavor to the database transparently.  The intention of doing an implementation like this one is to be able to share tentative improvements with a broad audience of developers.
 
 ## Installation
 
@@ -16,62 +15,15 @@ Run the following command in the NuGet Package Manager console to install Hangfi
 Install-Package Hangfire.EntityFrameworkStorage
 ```
 
-You will need to install an [additional driver package](DriverPackage.md) for all RDBMS systems except SQL Server.
-
- 
-
-
-## Database Implementation Notes
-The package includes an enumeration of database providers AND their specific flavors of SQL across various SQL versions:
-```
-    public enum ProviderTypeEnum
-    {
-        None = 0,
-      
-        OracleClient10 = 3,
-        OracleClient9 = 4,
-        PostgreSQLStandard = 5,
-        PostgreSQL81 = 6,
-        PostgreSQL82 = 7,
-        Firebird = 8,
-       
-        DB2Informix1150 = 10,
-        DB2Standard = 11,
-        MySQL = 12,
-        MsSql2008 = 13,
-        MsSql2012 = 14,
-        MsSql2005 = 15,
-        MsSql2000 = 16,
-        OracleClient10Managed = 17,
-        OracleClient9Managed = 18,
-    }
-```
-The enumeration values correspond to the list of providers NHibernate supports.  When you instantiate a provider, you'll pass the best enumeration value to the EntityFrameworkStorageFactory.For method, along with your connection string.  I wrote it this way so you don't have to be concerned with the underlying implementation details for the various providers, which can be a little messy.  
-
-### MS Sql Server
-You'll note that four versions of SQL Server are in the enumeration, and these directly correlate to NHibernate's built-in storage provider set.  This implementation was tested against only MS Sql Server 2012 and 2008.  If you're using MS SQL Server 2000 (*and I sincerely hope you're not*), you may have a rough time because the database does not support strings longer than 8000 characters.
-
-### Oracle
-Be advised that two of the four Oracle options (OracleClient9Managed, OracleClient10Managed) use the **Oracle.ManagedDataAccess** client library internally, while the other two (OracleClient9, OracleClient10) use the **System.Data.OracleClient** client library.  I'm not Oracle savvy, and I could only get **Oracle.ManagedDataAccess** to work properly (the other is NHibernate's default).  You may have a different experience.  This implementation was tested against Oracle 11g Express on Oracle Linux.
-
-### PostgreSQL
-This implementation was tested against PostgreSQL 10 on Ubuntu 12.
-
-### DB/2
-This implementation was tested against IBM® Db2® Express-C on Windows.
-
-### MySQL
-This implementation was tested against MySQL 5.7.20 on Ubuntu 16.
-
-### Firebird
-I set out to test this implementation on all the RDBMS systems NHibernate supports, and this was the last on the list.  I could not get a database instance to work.  Your mileage may vary :)
+You will need to install an [additional driver package](DriverPackage.md) for all RDBMS systems.
 
 ## Usage - Within an ASP.NET Application
-I may simplify the implementation later, but I think this code is pretty painless  Usage within an ASP.Net application would probably employ the OWin startup approach for Hangfire, which is pretty well-documented.  Please note the properties, which include specifying a database schema, passed to the method:
+I may simplify the implementation later, but I think this code is pretty painless.  ~~Please note the properties, which include specifying a database schema, passed to the method:~~
 ```
         public void Configuration(IAppBuilder app)
         {
             //Configure properties (this is optional)
+            //2024-06-24 Options are not implemented yet.
             var options = new EntityFrameworkStorageOptions
             {
                 TransactionIsolationLevel = IsolationLevel.Serializable,
@@ -89,9 +41,15 @@ I may simplify the implementation later, but I think this code is pretty painles
             //THIS SECTION GETS THE STORAGE PROVIDER.  CHANGE THE ENUM VALUE ON THE NEXT LINE FOR
             //YOUR PARTICULAR RDBMS
 
-            var storage = EntityFrameworkStorageFactory.For(ProviderTypeEnum.MySQL, "MyConnectionStringHere", options);
-
-            GlobalConfiguration.Configuration.UseStorage(storage);
+            var connectionString = //your provider-specific connection string
+            
+            GlobalConfiguration.Configuration.UseEntityFrameworkJobStorage(i =>
+            {
+                //THIS SECTION SETS THE STORAGE PROVIDER.  CHANGE THE 
+                //NEXT LINE FOR YOUR PARTICULAR RDBMS
+                
+                i.UseSqlite(connectionString);
+            });
 
             /*** More Hangfire configuration stuff 
             would go in this same method ***/
@@ -113,6 +71,7 @@ namespace Hangfire.EntityFrameworkStorage.SampleApplication
         private static void Main(string[] args)
         {
             //Configure properties (this is optional)
+            //2024-06-24 Options are not implemented yet.
             var options = new EntityFrameworkStorageOptions
             {
                 TransactionIsolationLevel = IsolationLevel.Serializable,
@@ -127,15 +86,19 @@ namespace Hangfire.EntityFrameworkStorage.SampleApplication
                 TablePrefix = "Hangfire_"
             };
 
-            //THIS SECTION GETS THE STORAGE PROVIDER.  CHANGE THE ENUM VALUE ON THE NEXT LINE FOR
-            //YOUR PARTICULAR RDBMS
 
-            var PersistenceConfigurerType = ProviderTypeEnum.MsSql2012;
-            var connectionString = ConfigurationManager.ConnectionStrings["someConnectionString"].ConnectionString;
-            var storage = EntityFrameworkStorageFactory.For(PersistenceConfigurerType, connectionString, options);
+
+         
+            var connectionString = //your provider-specific connection string
 
             //THIS LINE CONFIGURES HANGFIRE WITH THE STORAGE PROVIDER
-            GlobalConfiguration.Configuration.UseStorage(storage);
+            GlobalConfiguration.Configuration.UseEntityFrameworkJobStorage(i =>
+            {
+                //THIS SECTION SETS THE STORAGE PROVIDER.  CHANGE THE 
+                //NEXT LINE FOR YOUR PARTICULAR RDBMS
+                
+                i.UseSqlite(connectionString);
+            });
 
             /*THIS LINE STARTS THE BACKGROUND SERVER*/
             _backgroundJobServer = new BackgroundJobServer(new BackgroundJobServerOptions(), storage,
@@ -150,6 +113,7 @@ namespace Hangfire.EntityFrameworkStorage.SampleApplication
 }
 ```
 Description of optional parameters:
+( As of 2024-06-24, these options are not implemented yet, but are planned in future)
 - `TransactionIsolationLevel` - transaction isolation level. Default is Serializable.
 - `QueuePollInterval` - job queue polling interval. Default is 15 seconds.
 - `JobExpirationCheckInterval` - job expiration check interval (manages expired records). Default is 1 hour.
@@ -161,32 +125,8 @@ Description of optional parameters:
 - `DefaultSchema` - database schema into which the Hangfire tables will be created.  Default is database provider specific ("dbo" for SQL Server, "public" for PostgreSQL, etc).
 - `TablePrefix` - Table name prefix for Hangfire tables that will be created.  Default is 'Hangfire_'.  This cannot be null or blank.
 
-### How to limit number of open connections
-
-Number of opened connections depends on Hangfire worker count. You can limit worker count by setting `WorkerCount` property value in `BackgroundJobServerOptions`:
-```
-app.UseHangfireServer(
-   new BackgroundJobServerOptions
-   {
-      WorkerCount = 1
-   });
-```
-More info: http://hangfire.io/features.html#concurrency-level-control
-
-## Dashboard
-Hangfire provides a dashboard
-![Dashboard](https://camo.githubusercontent.com/f263ab4060a09e4375cc4197fb5bfe2afcacfc20/687474703a2f2f68616e67666972652e696f2f696d672f75692f64617368626f6172642d736d2e706e67)
-More info: [Hangfire Overview](http://hangfire.io/overview.html#integrated-monitoring-ui)
-
 ## Build
 Please use Visual Studio or any other tool of your choice to build the solution
-
-## Test
-In order to run unit tests and integrational tests set the following variables in you system environment variables (restart of Visual Studio is required):
-
-`Hangfire_SqlServer_ConnectionStringTemplate` (default: `server=127.0.0.1;uid=root;pwd=root;database={0};Allow User Variables=True`)
-
-`Hangfire_SqlServer_DatabaseName` (default: `Hangfire.EntityFrameworkStorage.Tests`)
 
 # Database Stuff
 
@@ -194,7 +134,7 @@ In order to run unit tests and integrational tests set the following variables i
  - During first-time use, you'll need table-creation rights on your RDBMS.
  - You can't specify table names (yet).  But you can specify the schema.  See the sample code.
  - Since this uses an OR/M, there are no stored procedures or views to be installed.
- - All dates stored in the tables are UTC, for consistency; except for the Firebird implementation because Firebird lacks a "current UTC date" function.
+ - All dates stored in the tables are Unix epoch dates.
  - This implementation uses database transactions to cleanly distribute pending jobs between various workers threads.  You may witness, if you turn on a logger, lots of failed transactions.  For now, this is expected.  Don't panic.
  - Old records are automatically cleaned up.  Most of the cleanup parameters are specified by the Hangfire engine itself, and this implementation does its best to not lock up your RDBMS while old records are being purged.  For more information on specific cleanup parameters, consult the Hangfire forums.
  - Table Hangfire_Dual should contain one and only one row - this is by design, and it's required in order to support the various RDBMSs.

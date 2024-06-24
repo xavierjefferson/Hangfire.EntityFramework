@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Transactions;
 using Hangfire.Annotations;
 using Hangfire.EntityFrameworkStorage.Entities;
@@ -10,15 +11,15 @@ using Hangfire.Logging;
 using Hangfire.Server;
 using Hangfire.Storage;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
-using Newtonsoft.Json;
 
 namespace Hangfire.EntityFrameworkStorage;
 
 public class EntityFrameworkJobStorage : JobStorage
 {
     private static readonly ILog Logger = LogProvider.For<EntityFrameworkJobStorage>();
+
+    private static readonly JsonSerializerOptions JsonSerializerOptions = new() { WriteIndented = true };
     private readonly IServiceProvider _serviceProvider;
     private readonly TimeSpan _utcOffset = TimeSpan.Zero;
     private CountersAggregator _countersAggregator;
@@ -30,11 +31,8 @@ public class EntityFrameworkJobStorage : JobStorage
     {
         if (dbContextOptionsBuilder == null) throw new ArgumentNullException(nameof(dbContextOptionsBuilder));
         var serviceCollection = new ServiceCollection();
-        serviceCollection.AddDbContext<HangfireContext>(i =>
-        {
-            dbContextOptionsBuilder(i);
-           
-        }, ServiceLifetime.Transient);
+        serviceCollection.AddDbContext<HangfireContext>(i => { dbContextOptionsBuilder(i); },
+            ServiceLifetime.Transient);
         _serviceProvider = serviceCollection.BuildServiceProvider();
         Initialize(options);
     }
@@ -115,12 +113,11 @@ public class EntityFrameworkJobStorage : JobStorage
                 new EntityFrameworkJobQueueProvider(this));
     }
 
-
     public override void WriteOptionsToLog(ILog logger)
     {
         if (logger.IsInfoEnabled())
             logger.DebugFormat("Using the following options for job storage: {0}",
-                JsonConvert.SerializeObject(Options, Formatting.Indented));
+                JsonSerializer.Serialize(Options, JsonSerializerOptions));
     }
 
 

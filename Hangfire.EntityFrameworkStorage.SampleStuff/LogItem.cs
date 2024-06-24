@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using Newtonsoft.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Serilog.Events;
 
 namespace Hangfire.EntityFrameworkStorage.SampleStuff;
@@ -23,19 +24,19 @@ public class LogItem
         Level = logEvent.Level.ToString();
         Message = logEvent.RenderMessage();
         Exception = logEvent.Exception?.ToString() ?? "-";
-        Properties = JsonConvert.SerializeObject(properties);
+        Properties = JsonSerializer.Serialize(properties);
     }
 
-    [JsonProperty("dt")] public virtual DateTime dt { get; set; }
-    [JsonProperty("id")] public virtual string Id { get; set; }
+    [JsonPropertyName("dt")] public virtual DateTime dt { get; set; }
+    [JsonPropertyName("id")] public virtual string Id { get; set; }
 
-    [JsonProperty("timestamp")] public virtual string Timestamp { get; set; }
+    [JsonPropertyName("timestamp")] public virtual string Timestamp { get; set; }
 
-    [JsonProperty("level")] public virtual string Level { get; set; }
+    [JsonPropertyName("level")] public virtual string Level { get; set; }
 
-    [JsonProperty("exception")] public virtual string Exception { get; set; }
+    [JsonPropertyName("exception")] public virtual string Exception { get; set; }
 
-    [JsonProperty("message")] public virtual string Message { get; set; }
+    [JsonPropertyName("message")] public virtual string Message { get; set; }
 
-    [JsonProperty("properties")] public virtual string Properties { get; set; }
+    [JsonPropertyName("properties")] public virtual string Properties { get; set; }
 }
